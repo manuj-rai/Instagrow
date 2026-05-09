@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(mkdir -p Frontend/src)",
+      "Bash(node -e \"require\\('./src/selenium.js'\\); require\\('./src/server.js'\\); console.log\\('OK: backend modules load'\\)\")",
+      "Bash(curl -s http://localhost:4545/api/unfollow/status -o NUL -w \"status: %{http_code}\\\\n\")",
+      "Bash(curl -s -X POST http://localhost:4545/api/follow/start -H \"Content-Type: application/json\" -d \"{\\\\\"source\\\\\":{\\\\\"username\\\\\":\\\\\"natgeo\\\\\",\\\\\"type\\\\\":\\\\\"followers\\\\\"},\\\\\"count\\\\\":1,\\\\\"dryRun\\\\\":true}\")",
+      "Bash(curl -s http://localhost:4545/api/unfollow/status)",
+      "Bash(node -e \"require\\('./src/selenium.js'\\); console.log\\('OK: selenium.js loads'\\)\")",
+      "Bash(node -e \"require\\('./src/selenium.js'\\); require\\('./src/server.js'\\)\")",
+      "Bash(node -e \"require\\('./src/selenium.js'\\); console.log\\('OK'\\)\")",
+      "Bash(curl -s http://localhost:4545/styles.css -o NUL -w \"css: %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:4545/ -o NUL -w \"html: %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:4545/app.js -o NUL -w \"js: %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:4545/styles.css)",
+      "Bash(node -e ' *)",
+      "Bash(rm \"F:/Manuj/Projects/Ig-unfollower/Backend/src/selenium.js\")",
+      "Bash(node -e \"require\\('./src/server.js'\\); console.log\\('OK'\\)\")",
+      "Bash(curl -s -o NUL -w '%{http_code} /__TRACKED_VAR__\\\\n' http://localhost:4545/__TRACKED_VAR__)",
+      "Bash(grep -vE \"node_modules|\\\\.git$\")",
+      "Bash(curl -s http://localhost:4545/ -o NUL -w \"html %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:4545/)"
+    ],
+    "additionalDirectories": [
+      "F:\\Manuj\\Projects\\Ig-unfollower\\Frontend"
+    ]
+  }
+}

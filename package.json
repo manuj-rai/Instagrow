@@ -1,0 +1,41 @@
+{
+  "name": "ig-unfollower",
+  "version": "1.0.0",
+  "description": "Local-first Instagram automation: scan your account, find non-followers, unfollow safely, and grow followers via targeted scrape.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "echo \"No tests yet\" && exit 0",
+    "update-selenium": "npm update selenium-webdriver"
+  },
+  "keywords": [
+    "instagram",
+    "automation",
+    "selenium",
+    "unfollow",
+    "follow",
+    "scan",
+    "growth"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "pino": "^8.17.2",
+    "pino-http": "^9.0.0",
+    "pino-pretty": "^10.3.1",
+    "selenium-webdriver": "^4.27.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
