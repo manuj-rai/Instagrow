@@ -16,7 +16,7 @@ if not defined DEBUG_PORT     set "DEBUG_PORT=9222"
 if not defined BACKEND_PORT   set "BACKEND_PORT=4545"
 
 set "ROOT=%~dp0"
-set "BACKEND_DIR=%ROOT%Backend"
+set "BACKEND_DIR=%ROOT%"
 
 REM ---- Locate Chrome ----
 set "CHROME=C:\Program Files\Google\Chrome\Application\chrome.exe"
