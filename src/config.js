@@ -44,6 +44,9 @@ function getConfig() {
     logLevel: process.env.LOG_LEVEL || 'info',
     useRemoteDebugging: toBool(process.env.USE_REMOTE_DEBUGGING, DEFAULTS.useRemoteDebugging),   // NEW
     remoteDebuggingPort: toInt(process.env.REMOTE_DEBUGGING_PORT, DEFAULTS.remoteDebuggingPort), // NEW
+    importDir: process.env.IG_IMPORT_DIR || "",
+    importOwner: process.env.IG_IMPORT_OWNER || "",
+    importPollMs: toInt(process.env.IG_IMPORT_POLL_MS, 30_000),
   };
 
   if (!config.chromeUserDataDir && config.nodeEnv === 'production') {

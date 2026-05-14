@@ -24,15 +24,20 @@
       <section class="panel">
         <h2>My account</h2>
         <p class="panel-desc">
-          Scan scrapes your followers + following directly from Instagram and
-          caches them locally. Run again whenever you want a fresh snapshot.
+          Live scan scrapes Instagram directly. If IG throttles the scrape
+          (returns only a partial list), use <strong>Import data download</strong>
+          for a complete, accurate snapshot — request your data at
+          <a href="https://www.instagram.com/download/request/" target="_blank" rel="noopener">instagram.com/download/request/</a>
+          (24–48&nbsp;hr turnaround). Inside the ZIP, the files are at
+          <code>connections/followers_and_following/followers_*.json</code> and
+          <code>following.json</code>.
         </p>
 
         <div class="scan-row">
           <div class="scan-info" id="scan-info">
             <div class="scan-info-line">
-              No snapshot yet — click <strong>Scan now</strong> to fetch your
-              lists.
+              No snapshot yet — click <strong>Scan now</strong> or
+              <strong>Import data download</strong>.
             </div>
           </div>
           <input
@@ -43,7 +48,16 @@
             autocomplete="off"
           />
           <button id="scan-btn" class="primary">Scan now</button>
+          <button id="import-btn" class="primary" type="button">Import data download</button>
+          <input
+            id="import-input"
+            type="file"
+            accept="application/json,.json"
+            multiple
+            hidden
+          />
         </div>
+        <div id="import-status" class="import-status hidden"></div>
       </section>
 
       <div class="top-row">

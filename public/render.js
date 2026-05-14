@@ -20,6 +20,24 @@ export function renderPill() {
   }
 }
 
+export function renderImportStatus() {
+  const s = state.importStatus;
+  if (!s || !s.enabled) {
+    els.importStatusEl.classList.add("hidden");
+    return;
+  }
+  els.importStatusEl.classList.remove("hidden");
+  const lastLine = s.lastImportedAt
+    ? `last import: ${escapeHtml(s.lastImportedFile || "")} (@${escapeHtml(s.lastImportedOwner || "?")}, ${fmt(s.lastImportedCounts?.followers || 0)}f / ${fmt(s.lastImportedCounts?.following || 0)}g) ${relTime(s.lastImportedAt)}`
+    : "no imports yet";
+  const errLine = s.lastError
+    ? ` · <span class="err">last error: ${escapeHtml(s.lastError.message)}</span>`
+    : "";
+  els.importStatusEl.innerHTML = `
+    <span class="dot ok"></span>
+    Auto-import watching <code>${escapeHtml(s.dir)}</code> · ${lastLine}${errLine}`;
+}
+
 export function renderScanInfo() {
   const snap = state.snapshot;
   const running = state.status?.running;

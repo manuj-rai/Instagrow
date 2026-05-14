@@ -12,6 +12,7 @@ const { state, log, ensureDayCounter, getStats } = require("./state");
 const path = require("path");
 const { runUnfollowJob, runFollowJob, runScanJob, requestStop } = require("./jobs");
 const { loadSnapshot } = require("./persistence");
+const { startImporter, getImporterStatus } = require("./importer");
 
 const config = getConfig();
 const isDev = config.nodeEnv === 'development';
@@ -311,6 +312,63 @@ app.post("/api/scan/start", async (req, res) => {
   }
 });
 
+// Upload pre-extracted followers/following from Instagram's data download.
+// Frontend reads the JSON files locally (FileReader) and posts the extracted
+// usernames here, so we don't need a multipart/zip dependency.
+app.post("/api/scan/upload", (req, res) => {
+  try {
+    if (state.running) {
+      return res.status(409).json({ ok: false, message: "A job is currently running" });
+    }
+
+    const schema = z.object({
+      owner: z.string().min(1).max(100),
+      followers: z.array(z.string().min(1).max(100)).max(1_000_000),
+      following: z.array(z.string().min(1).max(100)).max(1_000_000),
+    });
+
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        message: "Invalid upload payload",
+        errors: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+      });
+    }
+
+    const { normalizeUsername } = require("./utils");
+    const owner = normalizeUsername(parsed.data.owner);
+    const followers = Array.from(new Set(parsed.data.followers.map(normalizeUsername).filter(Boolean)));
+    const followingArr = Array.from(new Set(parsed.data.following.map(normalizeUsername).filter(Boolean)));
+
+    const { saveSnapshot } = require("./persistence");
+    saveSnapshot({
+      owner,
+      scannedAt: new Date().toISOString(),
+      source: "data_download",
+      followers,
+      following: followingArr,
+    });
+
+    state.lastUsername = owner;
+    log(`📥 Imported data download for @${owner}: ${followers.length} followers, ${followingArr.length} following`);
+
+    res.json({
+      ok: true,
+      owner,
+      counts: { followers: followers.length, following: followingArr.length },
+    });
+  } catch (err) {
+    logger.error({ err }, "Error importing data download");
+    res.status(500).json({ ok: false, message: "Error importing data download", error: err.message });
+  }
+});
+
+// Status of the auto-import watcher (watched dir, last import, errors).
+app.get("/api/import/status", (_req, res) => {
+  res.json({ ok: true, status: getImporterStatus(config) });
+});
+
 // Read the latest snapshot from disk and return computed comparison.
 app.get("/api/scan/latest", (_req, res) => {
   const snap = loadSnapshot();
@@ -402,7 +460,10 @@ const server = app.listen(config.port, () => {
   if (!config.chromeUserDataDir) {
     logger.warn('⚠️  CHROME_USER_DATA_DIR not set - Instagram login will be required each time');
   }
-  
+
+  // Start the auto-import watcher if IG_IMPORT_DIR is configured.
+  startImporter(config);
+
   logger.info('📖 API Endpoints:');
   logger.info('   GET  /health - Health check');
   logger.info('   GET  /api/unfollow/status - Get current status');
@@ -412,6 +473,8 @@ const server = app.listen(config.port, () => {
   logger.info('   POST /api/follow/start - Start follow job (scrapes source profile)');
   logger.info('   POST /api/job/stop - Generic stop (works for any job type)');
   logger.info('   POST /api/scan/start - Scan logged-in account (followers + following)');
+  logger.info('   POST /api/scan/upload - Import Instagram data download JSON');
+  logger.info('   GET  /api/import/status - Auto-import watcher status');
   logger.info('   GET  /api/scan/latest - Latest cached snapshot + comparison');
   logger.info(`   GET  /                 - UI (served from Backend/public/)`);
 });

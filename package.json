@@ -25,6 +25,7 @@
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
     "helmet": "^7.1.0",
+    "node-stream-zip": "^1.15.0",
     "pino": "^8.17.2",
     "pino-http": "^9.0.0",
     "pino-pretty": "^10.3.1",

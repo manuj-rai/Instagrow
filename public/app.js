@@ -4,6 +4,7 @@
 import { state, els } from "./state.js";
 import { api } from "./api.js";
 import { showError } from "./util.js";
+import { classifyAndParseFiles } from "./ig-parser.js";
 import {
   renderPill,
   renderScanInfo,
@@ -12,6 +13,7 @@ import {
   renderList,
   renderRunBar,
   renderLogs,
+  renderImportStatus,
 } from "./render.js";
 
 // ---------- Polling /api/unfollow/status ----------
@@ -23,10 +25,23 @@ async function pollOnce() {
   } catch (err) {
     state.statusError = err.message;
   }
+  // Import status is cheaper + less frequent — refresh on each poll, but
+  // don't block the main poll on failure.
+  try {
+    const r = await api.importStatus();
+    state.importStatus = r.status;
+  } catch {}
   renderPill();
   renderScanInfo();
+  renderImportStatus();
   renderRunBar();
   renderLogs();
+  // If auto-import landed a new snapshot since last poll, reflect it in the UI.
+  const lastIso = state.importStatus?.lastImportedAt || null;
+  if (lastIso && state.lastImportedSeen !== lastIso) {
+    state.lastImportedSeen = lastIso;
+    loadSnapshotIfAny();
+  }
   schedulePoll();
 }
 
@@ -81,6 +96,37 @@ els.scanBtn.onclick = async () => {
       }
       if (Date.now() - startTime > 1000 * 60 * 15) clearInterval(checkSnapshot);
     }, 3000);
+  } catch (err) {
+    showError(err.message);
+  }
+};
+
+els.importBtn.onclick = () => els.importInput.click();
+
+els.importInput.onchange = async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = ""; // reset so picking the same files again re-fires onchange
+  if (files.length === 0) return;
+
+  const owner = els.ownerInput.value.trim().replace(/^@/, "");
+  if (!owner) {
+    return showError("Enter your Instagram username before importing.");
+  }
+
+  try {
+    const { followers, following, errors } = await classifyAndParseFiles(files);
+    if (errors.length) {
+      showError(`Some files were skipped: ${errors.join("; ")}`);
+    }
+    if (followers.length === 0 && following.length === 0) {
+      return showError(
+        "No followers or following found in those files. Make sure you selected followers_*.json and following.json from your IG data download."
+      );
+    }
+    await api.scanUpload({ owner, followers, following });
+    state.snapshot = null;
+    await loadSnapshotIfAny();
+    pollOnce();
   } catch (err) {
     showError(err.message);
   }

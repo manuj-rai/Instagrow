@@ -1,19 +1,17 @@
 // Username scraper for an IG profile's followers/following list.
-// Two strategies: IG's internal REST API (preferred — fast, virtualization-proof)
-// and a DOM/MutationObserver fallback (when API path isn't available).
+// DOM/MutationObserver based — IG retired the /api/v1/friendships/<id>/followers/
+// endpoint for web origins and moved everything to POST /graphql/query with
+// rotating doc_ids, so the legacy API path is no longer viable.
 
 const { sleep, normalizeUsername } = require("../utils");
 const { state, log } = require("../state");
 const {
-  IG_APP_ID,
   SCRAPE_TYPES,
   DIRECT_URL_DIALOG_WAIT_MS,
   POST_DIALOG_WAIT_MS,
   SCROLL_STEP_PX,
   SCROLL_LOOP_DELAY_MS,
   STABLE_AT_BOTTOM_LIMIT,
-  SCRAPE_API_PAGE_SIZE,
-  SCRAPE_API_PAGE_DELAY_MS,
 } = require("../constants");
 const {
   jsFindAndClick,
@@ -21,113 +19,7 @@ const {
   waitForProfileReady,
 } = require("./dom");
 
-/* ---------------- API path ---------------- */
-
-async function fetchUserIdViaApi(driver, username) {
-  try {
-    const result = await driver.executeAsyncScript(function (username, appId) {
-      var callback = arguments[arguments.length - 1];
-      fetch(
-        "https://www.instagram.com/api/v1/users/web_profile_info/?username=" +
-          encodeURIComponent(username),
-        {
-          credentials: "include",
-          headers: {
-            "X-IG-App-ID": appId,
-            "X-Requested-With": "XMLHttpRequest",
-          },
-        }
-      )
-        .then(function (r) {
-          return r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status));
-        })
-        .then(function (data) {
-          var u = data && data.data && data.data.user;
-          callback({ ok: true, id: u && (u.id || u.pk), username: u && u.username });
-        })
-        .catch(function (e) {
-          callback({ ok: false, error: String((e && e.message) || e) });
-        });
-    }, username, IG_APP_ID);
-
-    if (result && result.ok && result.id) return String(result.id);
-    if (result && !result.ok) log(`ID lookup failed: ${result.error}`);
-    return null;
-  } catch (err) {
-    log(`ID lookup error: ${err.message}`);
-    return null;
-  }
-}
-
-async function fetchListViaApi(driver, userId, sourceType, { harvestAll, targetCount, onProgress }) {
-  const collected = new Set();
-  let maxId = "";
-  let page = 0;
-  const wantedPool = harvestAll
-    ? Infinity
-    : Math.max(targetCount * 3, targetCount + 20);
-
-  while (true) {
-    if (state.stopRequested) {
-      log("⏹️  Stop requested during API pagination.");
-      break;
-    }
-
-    const batch = await driver.executeAsyncScript(function (userId, sourceType, maxId, appId, pageSize) {
-      var callback = arguments[arguments.length - 1];
-      var url = "https://www.instagram.com/api/v1/friendships/" + userId + "/" + sourceType +
-                "/?count=" + pageSize +
-                (maxId ? "&max_id=" + encodeURIComponent(maxId) : "");
-      fetch(url, {
-        credentials: "include",
-        headers: {
-          "X-IG-App-ID": appId,
-          "X-Requested-With": "XMLHttpRequest",
-        },
-      })
-        .then(function (r) { return r.text().then(function (txt) { return { status: r.status, body: txt }; }); })
-        .then(function (resp) {
-          if (resp.status !== 200) {
-            return callback({ ok: false, status: resp.status, error: "HTTP " + resp.status, body: resp.body.slice(0, 200) });
-          }
-          var parsed;
-          try { parsed = JSON.parse(resp.body); }
-          catch (e) { return callback({ ok: false, error: "JSON parse failed", body: resp.body.slice(0, 200) }); }
-          if (parsed.status && parsed.status !== "ok") {
-            return callback({ ok: false, error: parsed.message || "API status: " + parsed.status });
-          }
-          callback({
-            ok: true,
-            users: (parsed.users || []).map(function (u) { return (u.username || "").toLowerCase(); }).filter(Boolean),
-            next_max_id: parsed.next_max_id || null,
-          });
-        })
-        .catch(function (e) { callback({ ok: false, error: String((e && e.message) || e) }); });
-    }, userId, sourceType, maxId, IG_APP_ID, SCRAPE_API_PAGE_SIZE);
-
-    if (!batch || !batch.ok) {
-      const err = batch ? batch.error : "unknown";
-      throw new Error(`API page ${page + 1} failed: ${err}`);
-    }
-
-    let added = 0;
-    for (const u of batch.users) {
-      if (!collected.has(u)) { collected.add(u); added += 1; }
-    }
-    page += 1;
-    if (onProgress) onProgress(collected.size);
-
-    if (collected.size >= wantedPool) break;
-    if (!batch.next_max_id || added === 0) break;
-
-    maxId = batch.next_max_id;
-    await sleep(SCRAPE_API_PAGE_DELAY_MS);
-  }
-
-  return Array.from(collected);
-}
-
-/* ---------------- DOM-scrape fallback ---------------- */
+/* ---------------- DOM scrape ---------------- */
 
 async function openSourceModal(driver, cleanSource, sourceType, baseUrl, elementTimeoutMs) {
   await driver.get(`${baseUrl}/${cleanSource}/${sourceType}/`);
@@ -224,17 +116,35 @@ async function scrapeViaDom(driver, cleanSource, sourceType, { harvestAll, targe
     });
     observer.observe(dialog, { childList: true, subtree: true });
 
-    var scrollable = null;
-    var candidates = dialog.querySelectorAll("div");
-    for (var k = 0; k < candidates.length; k++) {
-      var s = window.getComputedStyle(candidates[k]);
-      if ((s.overflowY === "auto" || s.overflowY === "scroll") &&
-          candidates[k].scrollHeight > candidates[k].clientHeight) {
-        scrollable = candidates[k];
-        break;
+    function findScrollable() {
+      // Prefer the scrollable that contains the most user-profile anchors —
+      // the dialog usually has an outer chrome scrollable AND an inner list
+      // scrollable, and we want the inner one (where new rows actually load).
+      var best = null;
+      var bestRowCount = -1;
+      var cands = dialog.querySelectorAll("div");
+      for (var k = 0; k < cands.length; k++) {
+        var s = window.getComputedStyle(cands[k]);
+        if ((s.overflowY === "auto" || s.overflowY === "scroll") &&
+            cands[k].scrollHeight > cands[k].clientHeight) {
+          var rows = cands[k].querySelectorAll('a[href^="/"]').length;
+          if (rows > bestRowCount) {
+            best = cands[k];
+            bestRowCount = rows;
+          }
+        }
       }
+      return best;
     }
-    window.__igScrape = { ready: true, collected: collected, observer: observer, scrollable: scrollable };
+    window.__igScrape = {
+      ready: true,
+      collected: collected,
+      observer: observer,
+      dialog: dialog,
+      scrollable: findScrollable(),
+      findScrollable: findScrollable,
+      harvest: harvest,
+    };
   });
 
   const wantedPool = harvestAll
@@ -253,10 +163,21 @@ async function scrapeViaDom(driver, cleanSource, sourceType, { harvestAll, targe
     const step = await driver.executeScript(function (stepPx) {
       var s = window.__igScrape;
       if (!s || !s.ready) return { count: 0, atBottom: true, error: "not-ready" };
+      try { s.harvest(s.dialog); } catch (e) {}
+      // Re-detect scrollable each tick — initial pick may have been wrong, or
+      // the list container may have been replaced as IG re-renders.
+      var newSc = s.findScrollable();
+      if (newSc && newSc !== s.scrollable) s.scrollable = newSc;
       var sc = s.scrollable;
       if (!sc) return { count: s.collected.size, atBottom: true, error: "no-scrollable" };
       var prevTop = sc.scrollTop;
       sc.scrollTop = sc.scrollTop + stepPx;
+      // Fire real scroll + wheel events so IG's React lazy-loader (which may
+      // listen for these rather than just polling scrollTop) actually fires.
+      try {
+        sc.dispatchEvent(new Event("scroll", { bubbles: true }));
+        sc.dispatchEvent(new WheelEvent("wheel", { deltaY: stepPx, bubbles: true, cancelable: true }));
+      } catch (e) {}
       var atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 8;
       return { count: s.collected.size, moved: sc.scrollTop !== prevTop, atBottom: atBottom };
     }, SCROLL_STEP_PX);
@@ -264,11 +185,30 @@ async function scrapeViaDom(driver, cleanSource, sourceType, { harvestAll, targe
     if (step.error === "not-ready") { log("Harvester not ready, aborting."); break; }
 
     if (step.count !== lastSize) {
+      const prev = lastSize;
       lastSize = step.count;
       stableAtBottom = 0;
       if (harvestAll) state.lastMessage = `Scraping ${sourceType}: ${step.count} harvested...`;
+      // Periodic log every 50 new usernames so the user sees progress.
+      if (Math.floor(step.count / 50) > Math.floor(prev / 50)) {
+        log(`  ${sourceType}: ${step.count} harvested so far...`);
+      }
     } else if (step.atBottom) {
       stableAtBottom += 1;
+      // After half the patience budget with no new rows, try a "kick":
+      // scroll up a bit then back down. Some virtualized lists need this
+      // to re-trigger the lazy-load IntersectionObserver.
+      if (stableAtBottom === Math.floor(STABLE_AT_BOTTOM_LIMIT / 2)) {
+        await driver.executeScript(function () {
+          var s = window.__igScrape;
+          if (!s || !s.scrollable) return;
+          var sc = s.scrollable;
+          var prev = sc.scrollTop;
+          sc.scrollTop = Math.max(0, prev - 400);
+          sc.dispatchEvent(new Event("scroll", { bubbles: true }));
+        });
+        await sleep(300);
+      }
       if (stableAtBottom >= STABLE_AT_BOTTOM_LIMIT) break;
     }
 
@@ -278,14 +218,29 @@ async function scrapeViaDom(driver, cleanSource, sourceType, { harvestAll, targe
 
   const finalList = await driver.executeScript(function () {
     var s = window.__igScrape;
-    if (!s || !s.ready) return [];
+    if (!s || !s.ready) return { list: [], diag: { ready: false } };
     try { s.observer.disconnect(); } catch {}
+    var diag = null;
+    if (s.collected.size === 0) {
+      var d = s.dialog;
+      diag = {
+        dialogText: ((d && d.innerText) || "").slice(0, 300).replace(/\s+/g, " "),
+        anchorCount: d ? d.querySelectorAll('a[href^="/"]').length : 0,
+        firstHrefs: d
+          ? Array.from(d.querySelectorAll('a[href^="/"]')).slice(0, 6).map(function (a) { return a.getAttribute("href"); })
+          : [],
+        scrollableFound: !!s.scrollable,
+      };
+    }
     var arr = Array.from(s.collected);
     delete window.__igScrape;
-    return arr;
+    return { list: arr, diag: diag };
   });
 
-  return finalList;
+  if (finalList.diag) {
+    log(`⚠️  DOM scrape collected 0. Diagnostic: ${JSON.stringify(finalList.diag)}`);
+  }
+  return finalList.list;
 }
 
 /* ---------------- Public entrypoint ---------------- */
@@ -299,32 +254,6 @@ async function scrapeUsernamesFromSource(driver, opts) {
 
   const cleanSource = normalizeUsername(sourceUsername);
 
-  // Strategy 1: IG's internal REST API (preferred).
-  try {
-    const url = await driver.getCurrentUrl();
-    if (!/^https?:\/\/(www\.)?instagram\.com\//.test(url)) {
-      await driver.get(`${baseUrl}/`);
-      await sleep(800);
-    }
-    log(`🌐 Resolving @${cleanSource} → user_id via API...`);
-    const userId = await fetchUserIdViaApi(driver, cleanSource);
-    if (userId) {
-      log(`✓ user_id=${userId}. Paginating ${sourceType} via API...`);
-      const list = await fetchListViaApi(driver, userId, sourceType, {
-        harvestAll, targetCount,
-        onProgress: (n) => { state.lastMessage = `Scraping ${sourceType} via API: ${n} so far...`; },
-      });
-      const set = new Set(list);
-      set.delete(cleanSource);
-      log(`✓ API scrape complete: ${set.size} usernames from @${cleanSource}/${sourceType}`);
-      return Array.from(set);
-    }
-    log(`API path unavailable, falling back to DOM scrape...`);
-  } catch (apiErr) {
-    log(`API path failed (${apiErr.message}), falling back to DOM scrape...`);
-  }
-
-  // Strategy 2: DOM scrape with MutationObserver.
   log(`🔎 Opening @${cleanSource}/${sourceType}...`);
   await openSourceModal(driver, cleanSource, sourceType, baseUrl, elementTimeoutMs);
   const list = await scrapeViaDom(driver, cleanSource, sourceType, { harvestAll, targetCount });

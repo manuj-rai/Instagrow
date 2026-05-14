@@ -10,6 +10,7 @@ export const state = {
   status: null,        // last /api/unfollow/status response
   statusError: null,   // string | null
   snapshot: null,      // { owner, scannedAt, counts, lists }
+  importStatus: null,  // last /api/import/status response (status field)
   selected: new Set(),
   tab: "notFollowingBack",
   filter: "",
@@ -23,6 +24,9 @@ export const els = {
   scanInfo: $("scan-info"),
   ownerInput: $("owner-input"),
   scanBtn: $("scan-btn"),
+  importBtn: $("import-btn"),
+  importInput: $("import-input"),
+  importStatusEl: $("import-status"),
   results: $("results-section"),
   stats: $("stats"),
   browse: $("browse-section"),

@@ -20,6 +20,12 @@ export const api = {
       body: JSON.stringify(ownerUsername ? { ownerUsername } : {}),
     }),
   scanLatest: () => jsonFetch("/api/scan/latest"),
+  scanUpload: ({ owner, followers, following }) =>
+    jsonFetch("/api/scan/upload", {
+      method: "POST",
+      body: JSON.stringify({ owner, followers, following }),
+    }),
+  importStatus: () => jsonFetch("/api/import/status"),
   unfollowStart: (usernames) =>
     jsonFetch("/api/unfollow/start", {
       method: "POST",
