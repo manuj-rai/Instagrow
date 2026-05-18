@@ -349,4 +349,4 @@ function getImporterStatus(config) {
   };
 }
 
-module.exports = { startImporter, getImporterStatus, importFromZip, importFromFolder };
+module.exports = { startImporter, getImporterStatus };

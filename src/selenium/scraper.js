@@ -1,17 +1,20 @@
 // Username scraper for an IG profile's followers/following list.
-// DOM/MutationObserver based — IG retired the /api/v1/friendships/<id>/followers/
-// endpoint for web origins and moved everything to POST /graphql/query with
-// rotating doc_ids, so the legacy API path is no longer viable.
+// Two strategies: IG's internal REST API (preferred — fast, virtualization-proof)
+// and a DOM/MutationObserver fallback (when the session is soft-flagged and
+// the API call gets redirected to /).
 
 const { sleep, normalizeUsername } = require("../utils");
 const { state, log } = require("../state");
 const {
+  IG_APP_ID,
   SCRAPE_TYPES,
   DIRECT_URL_DIALOG_WAIT_MS,
   POST_DIALOG_WAIT_MS,
   SCROLL_STEP_PX,
   SCROLL_LOOP_DELAY_MS,
   STABLE_AT_BOTTOM_LIMIT,
+  SCRAPE_API_PAGE_SIZE,
+  SCRAPE_API_PAGE_DELAY_MS,
 } = require("../constants");
 const {
   jsFindAndClick,
@@ -19,7 +22,133 @@ const {
   waitForProfileReady,
 } = require("./dom");
 
-/* ---------------- DOM scrape ---------------- */
+/* ---------------- API path ---------------- */
+
+// Resolves a username → numeric user_id via IG's public web_profile_info
+// endpoint. Also harvests the X-IG-Set-WWW-Claim response header as a
+// fallback claim source if sessionStorage doesn't have one yet.
+async function fetchUserIdViaApi(driver, username) {
+  try {
+    const result = await driver.executeAsyncScript(function (username, appId) {
+      var cb = arguments[arguments.length - 1];
+      fetch(
+        "https://www.instagram.com/api/v1/users/web_profile_info/?username=" + encodeURIComponent(username),
+        { credentials: "include", headers: { "X-IG-App-ID": appId, "X-Requested-With": "XMLHttpRequest" } }
+      )
+        .then(function (r) {
+          var claim = r.headers.get("x-ig-set-www-claim") || r.headers.get("X-IG-Set-WWW-Claim");
+          if (!r.ok) return Promise.reject(new Error("HTTP " + r.status));
+          return r.json().then(function (data) { return { data: data, claim: claim }; });
+        })
+        .then(function (out) {
+          var u = out.data && out.data.data && out.data.data.user;
+          cb({ ok: true, id: u && (u.id || u.pk), username: u && u.username, claim: out.claim });
+        })
+        .catch(function (e) { cb({ ok: false, error: String((e && e.message) || e) }); });
+    }, username, IG_APP_ID);
+
+    if (result && result.ok && result.id) {
+      return { id: String(result.id), claim: result.claim || null };
+    }
+    if (result && !result.ok) log(`ID lookup failed: ${result.error}`);
+    return null;
+  } catch (err) {
+    log(`ID lookup error: ${err.message}`);
+    return null;
+  }
+}
+
+// Reads the real X-IG-WWW-Claim from sessionStorage (key: www-claim-v2),
+// falls back to the optional header-extracted claim, then to "0".
+async function readClaimFromSession(driver, headerClaim) {
+  try {
+    const ss = await driver.executeScript(function () {
+      try { return sessionStorage.getItem("www-claim-v2"); } catch (e) { return null; }
+    });
+    return ss || headerClaim || "0";
+  } catch {
+    return headerClaim || "0";
+  }
+}
+
+async function fetchListViaApi(driver, userId, sourceType, { harvestAll, targetCount, onProgress, wwwClaim }) {
+  const collected = new Set();
+  let maxId = "";
+  let page = 0;
+  const wantedPool = harvestAll ? Infinity : Math.max(targetCount * 3, targetCount + 20);
+
+  while (true) {
+    if (state.stopRequested) { log("⏹️  Stop requested during API pagination."); break; }
+
+    const batch = await driver.executeAsyncScript(function (userId, sourceType, maxId, appId, pageSize, wwwClaim) {
+      var cb = arguments[arguments.length - 1];
+      var url = "https://www.instagram.com/api/v1/friendships/" + userId + "/" + sourceType +
+                "/?count=" + pageSize +
+                "&search_surface=follow_list_page" +
+                (maxId ? "&max_id=" + encodeURIComponent(maxId) : "");
+      var csrf = (document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/) || [])[1] || "";
+      fetch(url, {
+        credentials: "include",
+        headers: {
+          "X-IG-App-ID": appId,
+          "X-Requested-With": "XMLHttpRequest",
+          "X-ASBD-ID": "129477",
+          "X-IG-WWW-Claim": wwwClaim || "0",
+          "X-CSRFToken": csrf,
+        },
+      })
+        .then(function (r) {
+          return r.text().then(function (txt) {
+            return {
+              status: r.status, body: txt, finalUrl: r.url, redirected: r.redirected,
+              ct: r.headers.get("content-type") || "",
+            };
+          });
+        })
+        .then(function (resp) {
+          var diag = " | finalUrl: " + resp.finalUrl + " | redirected: " + resp.redirected + " | content-type: " + resp.ct;
+          if (resp.status !== 200) {
+            return cb({ ok: false, error: "HTTP " + resp.status, body: resp.body.slice(0, 200) + diag });
+          }
+          var parsed;
+          try { parsed = JSON.parse(resp.body); }
+          catch (e) { return cb({ ok: false, error: "JSON parse failed", body: resp.body.slice(0, 200) + diag }); }
+          if (parsed.status && parsed.status !== "ok") {
+            return cb({ ok: false, error: parsed.message || "API status: " + parsed.status });
+          }
+          cb({
+            ok: true,
+            users: (parsed.users || []).map(function (u) { return (u.username || "").toLowerCase(); }).filter(Boolean),
+            next_max_id: parsed.next_max_id || null,
+          });
+        })
+        .catch(function (e) { cb({ ok: false, error: String((e && e.message) || e) }); });
+    }, userId, sourceType, maxId, IG_APP_ID, SCRAPE_API_PAGE_SIZE, wwwClaim || null);
+
+    if (!batch || !batch.ok) {
+      const err = batch ? batch.error : "unknown";
+      const bodySnippet = batch && batch.body ? ` | body[0..200]: ${batch.body.replace(/\s+/g, " ")}` : "";
+      throw new Error(`API page ${page + 1} failed: ${err}${bodySnippet}`);
+    }
+
+    let added = 0;
+    for (const u of batch.users) {
+      if (!collected.has(u)) { collected.add(u); added += 1; }
+    }
+    page += 1;
+    if (onProgress) onProgress(collected.size);
+
+    if (collected.size >= wantedPool) break;
+    if (!batch.next_max_id || added === 0) break;
+
+    maxId = batch.next_max_id;
+    await sleep(SCRAPE_API_PAGE_DELAY_MS);
+  }
+
+  return Array.from(collected);
+}
+
+/* ---------------- DOM scrape (fallback) ---------------- */
 
 async function openSourceModal(driver, cleanSource, sourceType, baseUrl, elementTimeoutMs) {
   await driver.get(`${baseUrl}/${cleanSource}/${sourceType}/`);
@@ -150,7 +279,7 @@ async function scrapeViaDom(driver, cleanSource, sourceType, { harvestAll, targe
   const wantedPool = harvestAll
     ? Infinity
     : Math.max(targetCount * 3, targetCount + 20);
-  const maxIterations = harvestAll ? 800 : 80;
+  const maxIterations = harvestAll ? 5000 : 200;
   let lastSize = 0;
   let stableAtBottom = 0;
 
@@ -160,27 +289,34 @@ async function scrapeViaDom(driver, cleanSource, sourceType, { harvestAll, targe
       break;
     }
 
-    const step = await driver.executeScript(function (stepPx) {
-      var s = window.__igScrape;
-      if (!s || !s.ready) return { count: 0, atBottom: true, error: "not-ready" };
-      try { s.harvest(s.dialog); } catch (e) {}
-      // Re-detect scrollable each tick — initial pick may have been wrong, or
-      // the list container may have been replaced as IG re-renders.
-      var newSc = s.findScrollable();
-      if (newSc && newSc !== s.scrollable) s.scrollable = newSc;
-      var sc = s.scrollable;
-      if (!sc) return { count: s.collected.size, atBottom: true, error: "no-scrollable" };
-      var prevTop = sc.scrollTop;
-      sc.scrollTop = sc.scrollTop + stepPx;
-      // Fire real scroll + wheel events so IG's React lazy-loader (which may
-      // listen for these rather than just polling scrollTop) actually fires.
-      try {
-        sc.dispatchEvent(new Event("scroll", { bubbles: true }));
-        sc.dispatchEvent(new WheelEvent("wheel", { deltaY: stepPx, bubbles: true, cancelable: true }));
-      } catch (e) {}
-      var atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 8;
-      return { count: s.collected.size, moved: sc.scrollTop !== prevTop, atBottom: atBottom };
-    }, SCROLL_STEP_PX);
+    let step;
+    try {
+      step = await driver.executeScript(function (stepPx) {
+        var s = window.__igScrape;
+        if (!s || !s.ready) return { count: 0, atBottom: true, error: "not-ready" };
+        try { s.harvest(s.dialog); } catch (e) {}
+        // Re-detect scrollable each tick — initial pick may have been wrong, or
+        // the list container may have been replaced as IG re-renders.
+        var newSc = s.findScrollable();
+        if (newSc && newSc !== s.scrollable) s.scrollable = newSc;
+        var sc = s.scrollable;
+        if (!sc) return { count: s.collected.size, atBottom: true, error: "no-scrollable" };
+        var prevTop = sc.scrollTop;
+        sc.scrollTop = sc.scrollTop + stepPx;
+        // Fire real scroll + wheel events so IG's React lazy-loader (which may
+        // listen for these rather than just polling scrollTop) actually fires.
+        try {
+          sc.dispatchEvent(new Event("scroll", { bubbles: true }));
+          sc.dispatchEvent(new WheelEvent("wheel", { deltaY: stepPx, bubbles: true, cancelable: true }));
+        } catch (e) {}
+        var atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 8;
+        return { count: s.collected.size, moved: sc.scrollTop !== prevTop, atBottom: atBottom };
+      }, SCROLL_STEP_PX);
+    } catch (e) {
+      // Page can transition mid-script (rare). Treat as a single skipped tick.
+      step = { count: lastSize, atBottom: false };
+    }
+    if (!step) step = { count: lastSize, atBottom: false };
 
     if (step.error === "not-ready") { log("Harvester not ready, aborting."); break; }
 
@@ -254,6 +390,36 @@ async function scrapeUsernamesFromSource(driver, opts) {
 
   const cleanSource = normalizeUsername(sourceUsername);
 
+  // Strategy 1: IG's internal REST API (much faster, immune to virtualization).
+  // We navigate to the target profile first so the request originates from
+  // there (IG ties session/claim authorization to the originating page).
+  // Longer settle time matters — IG's gateway treats "just navigated then
+  // immediately hit /api/v1/friendships/..." as bot-like and redirects to /.
+  try {
+    await driver.get(`${baseUrl}/${cleanSource}/`);
+    await sleep(4500);
+    log(`🌐 Resolving @${cleanSource} → user_id via API...`);
+    const idResult = await fetchUserIdViaApi(driver, cleanSource);
+    if (idResult && idResult.id) {
+      const userId = idResult.id;
+      const wwwClaim = await readClaimFromSession(driver, idResult.claim);
+      log(`✓ user_id=${userId}. Paginating ${sourceType} via API...`);
+      log(`  www-claim: ${wwwClaim && wwwClaim !== "0" ? wwwClaim.slice(0, 24) + "..." : "(using sentinel 0)"}`);
+      const list = await fetchListViaApi(driver, userId, sourceType, {
+        harvestAll, targetCount, wwwClaim,
+        onProgress: (n) => { state.lastMessage = `Scraping ${sourceType} via API: ${n} so far...`; },
+      });
+      const set = new Set(list);
+      set.delete(cleanSource);
+      log(`✓ API scrape complete: ${set.size} usernames from @${cleanSource}/${sourceType}`);
+      return Array.from(set);
+    }
+    log(`API path unavailable (no user_id), falling back to DOM scrape...`);
+  } catch (apiErr) {
+    log(`API path failed (${apiErr.message}), falling back to DOM scrape...`);
+  }
+
+  // Strategy 2: DOM scrape with MutationObserver.
   log(`🔎 Opening @${cleanSource}/${sourceType}...`);
   await openSourceModal(driver, cleanSource, sourceType, baseUrl, elementTimeoutMs);
   const list = await scrapeViaDom(driver, cleanSource, sourceType, { harvestAll, targetCount });

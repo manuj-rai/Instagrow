@@ -62,9 +62,8 @@ Three ways to get follower/following lists, in order of reliability:
 ```
 .
 ├── package.json
-├── dockerfile
 ├── .env.example          ← copy to .env
-├── .gitignore  .dockerignore
+├── .gitignore
 ├── readme.md             ← this file
 ├── run.bat               ← Windows launcher (Chrome + backend)
 ├── data/                 ← cached snapshot + import state (gitignored)
@@ -227,32 +226,6 @@ See `.env.example` for the full list with comments. The important ones:
 If you set `IG_IMPORT_DIR` to a folder that receives IG export ZIPs (typically your Google Drive desktop sync target), the backend polls that folder every `IG_IMPORT_POLL_MS` milliseconds. On each new `.zip` it extracts `followers_*.json` + `following.json` from `connections/followers_and_following/` and overwrites `data/snapshot.json`. Owner is auto-recovered from `personal_information/personal_information.json` inside the ZIP. Processed ZIPs are tracked in `data/import-state.json` so they aren't re-imported.
 
 The UI shows a status pill below the scan row: watched folder + last import time + last error if any.
-
----
-
-## Docker deployment
-
-The included `dockerfile` ships Chrome inside the container so Selenium runs without an external browser.
-
-```bash
-docker build -t ig-unfollower .
-docker run -d \
-  -p 4545:4545 \
-  -v ig-data:/app/data \
-  -e DAILY_LIMIT=80 \
-  -e MIN_DELAY_MS=20000 \
-  -e MAX_DELAY_MS=45000 \
-  --name ig \
-  ig-unfollower
-```
-
-`USE_REMOTE_DEBUGGING` is forced to `false` in the image (the container runs its own Chrome). The first run will require a manual login since there's no profile mounted; mount your bot Chrome profile as a volume to persist sessions:
-
-```bash
--v /path/to/ChromeBot:/home/appuser/.config/google-chrome
-```
-
-For local Windows usage, prefer `run.bat` — it's faster and reuses your real Chrome login.
 
 ---
 

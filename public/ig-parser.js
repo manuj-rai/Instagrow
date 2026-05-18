@@ -37,26 +37,6 @@ function entryToUsername(entry) {
   return null;
 }
 
-export async function parseUsernamesFromFile(file) {
-  const text = await readFileAsText(file);
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    throw new Error(`${file.name}: not valid JSON`);
-  }
-  const entries = extractEntries(parsed);
-  if (entries.length === 0) {
-    throw new Error(`${file.name}: no follower/following entries found`);
-  }
-  const out = [];
-  for (const e of entries) {
-    const u = entryToUsername(e);
-    if (u) out.push(u.replace(/^@/, "").replace(/\/+$/, "").toLowerCase().trim());
-  }
-  return out.filter(Boolean);
-}
-
 // Heuristic: a file containing follower data has "follower" in the filename
 // (followers_1.json, followers_2.json, etc.) or its parsed top-level key
 // matches `relationships_followers`. Anything else is treated as following.

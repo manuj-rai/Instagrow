@@ -19,4 +19,4 @@ function loadSnapshot() {
   }
 }
 
-module.exports = { saveSnapshot, loadSnapshot, SNAPSHOT_PATH, DATA_DIR };
+module.exports = { saveSnapshot, loadSnapshot, DATA_DIR };

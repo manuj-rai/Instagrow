@@ -148,10 +148,10 @@ app.post("/api/unfollow/start", async (req, res) => {
     const schema = z.object({
       usernames: z.array(z.string().min(1).max(100))
         .min(1, "At least one username required")
-        .max(5000, "Maximum 5000 usernames allowed"),
+        .max(50_000, "Maximum 50000 usernames allowed"),
       minDelayMs: z.number().int().positive().optional(),
       maxDelayMs: z.number().int().positive().optional(),
-      dailyLimit: z.number().int().positive().max(500).optional(),
+      dailyLimit: z.number().int().positive().max(5000).optional(),
       dryRun: z.boolean().optional(),
     });
 
@@ -231,10 +231,10 @@ app.post("/api/follow/start", async (req, res) => {
         username: z.string().min(1).max(100),
         type: z.enum(['followers', 'following']),
       }),
-      count: z.number().int().positive().max(500),
+      count: z.number().int().positive().max(5000),
       minDelayMs: z.number().int().positive().optional(),
       maxDelayMs: z.number().int().positive().optional(),
-      dailyLimit: z.number().int().positive().max(500).optional(),
+      dailyLimit: z.number().int().positive().max(5000).optional(),
       dryRun: z.boolean().optional(),
     });
 

@@ -37,7 +37,8 @@
       "Bash(node -c src/importer.js)",
       "Bash(ls -la \"G:/My Drive/\" 2>&1 | head -50)",
       "Read(//g/My Drive/**)",
-      "Bash(node -e \"const s=require\\('./data/snapshot.json'\\); console.log\\('owner:', s.owner\\); console.log\\('scannedAt:', s.scannedAt\\); console.log\\('source:', s.source\\); console.log\\('sourceFolder:', s.sourceFolder\\); console.log\\('counts:', { followers: s.followers.length, following: s.following.length }\\);\")"
+      "Bash(node -e \"const s=require\\('./data/snapshot.json'\\); console.log\\('owner:', s.owner\\); console.log\\('scannedAt:', s.scannedAt\\); console.log\\('source:', s.source\\); console.log\\('sourceFolder:', s.sourceFolder\\); console.log\\('counts:', { followers: s.followers.length, following: s.following.length }\\);\")",
+      "Bash(node src/debug-api-check.js)"
     ],
     "additionalDirectories": [
       "F:\\Manuj\\Projects\\Ig-unfollower\\Frontend"
