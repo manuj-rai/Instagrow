@@ -140,6 +140,8 @@ Copy `.env.example` to `.env`. Every setting is optional except the Chrome profi
 | Variable | Default | Notes |
 |---|---|---|
 | `PORT` | `4545` | Backend and UI port. |
+| `NODE_ENV` | `development` | `development` prints colourized console logs. |
+| `IG_BASE_URL` | `https://www.instagram.com` | Rarely needs changing. |
 | `USE_REMOTE_DEBUGGING` | `false` | When `true`, attaches to a Chrome already running on `REMOTE_DEBUGGING_PORT`. `run.bat` needs this set to `true`. |
 | `REMOTE_DEBUGGING_PORT` | `9222` | |
 | `CHROME_USER_DATA_DIR` | — | Chrome user-data folder, used when Selenium launches Chrome. |
