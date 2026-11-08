@@ -13,6 +13,11 @@ async function buildDriver({
   remoteDebuggingPort,
 }) {
   const options = new chrome.Options();
+  // "eager": driver.get() returns at DOMContentLoaded instead of waiting for
+  // every image/video on the page (the default "normal" made each profile
+  // switch take 10–100s on media-heavy profiles). Our own readiness checks
+  // (waitForProfileReady / jsFindAndClick) wait for the elements we need.
+  options.setPageLoadStrategy("eager");
 
   if (useRemoteDebugging) {
     const debuggerAddress = `127.0.0.1:${remoteDebuggingPort}`;

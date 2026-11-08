@@ -10,9 +10,20 @@ const { z } = require("zod");
 const { getConfig } = require("./config");
 const { state, log, ensureDayCounter, getStats } = require("./state");
 const path = require("path");
-const { runUnfollowJob, runFollowJob, runScanJob, requestStop } = require("./jobs");
+const {
+  runUnfollowJob,
+  runFollowJob,
+  runScanJob,
+  requestStop,
+  runApifyScanJob,
+  acceptPendingApifyResult,
+  startApifyScheduler,
+  getApifyStatus,
+  resolveApifyOwner,
+} = require("./jobs");
 const { loadSnapshot } = require("./persistence");
 const { startImporter, getImporterStatus } = require("./importer");
+const { historyCounts, clearHistory, unfollowedSet } = require("./history");
 
 const config = getConfig();
 const isDev = config.nodeEnv === 'development';
@@ -52,7 +63,7 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 // Request logging — suppress noisy polling endpoints
-const QUIET_ROUTES = ['/api/unfollow/status', '/health', '/api/config'];
+const QUIET_ROUTES = ['/api/unfollow/status', '/health', '/api/config', '/api/apify/status'];
 app.use(pinoHttp({
   logger,
   autoLogging: {
@@ -86,11 +97,14 @@ app.get("/api/unfollow/status", (_req, res) => {
     ensureDayCounter();
     
     const stats = getStats();
-    const recentLogs = state.logs.slice(0, 120).map(entry => {
+    // Send all in-memory logs as structured objects so the UI can render
+    // error/warn lines in distinct colors. Falls back to a string wrap for
+    // any legacy string entries (shouldn't happen post-refactor).
+    const recentLogs = state.logs.map(entry => {
       if (typeof entry === 'string') {
-        return entry;
+        return { timestamp: null, level: 'info', message: entry };
       }
-      return `[${entry.timestamp}] ${entry.message}`;
+      return { timestamp: entry.timestamp, level: entry.level || 'info', message: entry.message };
     });
 
     res.json({
@@ -364,6 +378,39 @@ app.post("/api/scan/upload", (req, res) => {
   }
 });
 
+// Scan followers + following via Apify (no browser). Runs in the background;
+// progress shows in /api/unfollow/status, outcome in /api/apify/status.
+app.post("/api/apify/scan", (req, res) => {
+  if (state.running) {
+    return res.status(409).json({ ok: false, message: "A job is already running" });
+  }
+  if (!config.apifyTokens.length) {
+    return res.status(400).json({ ok: false, message: "APIFY_TOKENS is not set in .env" });
+  }
+  const parsed = z.object({ ownerUsername: z.string().min(1).max(100).optional() }).safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, message: "Invalid request body" });
+  }
+  const owner = resolveApifyOwner(parsed.data.ownerUsername, config);
+  if (!owner) {
+    return res.status(400).json({ ok: false, message: "Enter your Instagram username first (or set IG_IMPORT_OWNER in .env)" });
+  }
+
+  runApifyScanJob({ ownerUsername: owner, config, trigger: "manual" })
+    .catch((err) => logger.error({ err }, "Background apify-scan error"));
+  res.json({ ok: true, started: true, owner });
+});
+
+app.get("/api/apify/status", (_req, res) => {
+  res.json({ ok: true, status: getApifyStatus(config) });
+});
+
+// Save a held-back ("looks incomplete") Apify result as the snapshot anyway.
+app.post("/api/apify/accept", (_req, res) => {
+  const result = acceptPendingApifyResult();
+  res.status(result.ok ? 200 : 409).json(result);
+});
+
 // Status of the auto-import watcher (watched dir, last import, errors).
 app.get("/api/import/status", (_req, res) => {
   res.json({ ok: true, status: getImporterStatus(config) });
@@ -377,10 +424,16 @@ app.get("/api/scan/latest", (_req, res) => {
   const followers = snap.followers || [];
   const following = snap.following || [];
   const fSet = new Set(followers);
-  const gSet = new Set(following);
+  // Treat accounts we've already unfollowed as no longer followed, even though
+  // the snapshot still lists them (it goes stale until the next scan). This keeps
+  // every derived list accurate — and keeps already-unfollowed accounts out of the
+  // unfollow list — without forcing a re-scan after each run.
+  const unfollowed = unfollowedSet();
+  const effFollowing = following.filter((u) => !unfollowed.has(u));
+  const gSet = new Set(effFollowing);
   const comparison = {
-    notFollowingBack: following.filter((u) => !fSet.has(u)),
-    mutuals: following.filter((u) => fSet.has(u)),
+    notFollowingBack: effFollowing.filter((u) => !fSet.has(u)),
+    mutuals: effFollowing.filter((u) => fSet.has(u)),
     fans: followers.filter((u) => !gSet.has(u)),
   };
 
@@ -391,14 +444,35 @@ app.get("/api/scan/latest", (_req, res) => {
       scannedAt: snap.scannedAt,
       counts: {
         followers: followers.length,
-        following: following.length,
+        following: effFollowing.length,
         notFollowingBack: comparison.notFollowingBack.length,
         mutuals: comparison.mutuals.length,
         fans: comparison.fans.length,
       },
       lists: comparison,
+      history: historyCounts(),
     },
   });
+});
+
+// Action history — counts of accounts we've already followed / unfollowed.
+app.get("/api/history", (_req, res) => {
+  res.json({ ok: true, counts: historyCounts() });
+});
+
+// Clear action history so previously-actioned accounts can be re-targeted.
+// body: { which?: "all" | "followed" | "unfollowed" }  (default "all")
+app.post("/api/history/clear", (req, res) => {
+  if (state.running) {
+    return res.status(409).json({ ok: false, message: "Stop the running job before clearing history" });
+  }
+  const which = (req.body && req.body.which) || "all";
+  if (!["all", "followed", "unfollowed"].includes(which)) {
+    return res.status(400).json({ ok: false, message: 'which must be "all", "followed", or "unfollowed"' });
+  }
+  clearHistory(which);
+  log(`🗑️  Cleared ${which} action history`);
+  res.json({ ok: true, counts: historyCounts() });
 });
 
 // Get config (useful for frontend)
@@ -464,6 +538,9 @@ const server = app.listen(config.port, () => {
   // Start the auto-import watcher if IG_IMPORT_DIR is configured.
   startImporter(config);
 
+  // Start the Apify auto-scan scheduler if APIFY_SCAN_INTERVAL_HOURS is set.
+  startApifyScheduler(config);
+
   logger.info('📖 API Endpoints:');
   logger.info('   GET  /health - Health check');
   logger.info('   GET  /api/unfollow/status - Get current status');
@@ -474,8 +551,13 @@ const server = app.listen(config.port, () => {
   logger.info('   POST /api/job/stop - Generic stop (works for any job type)');
   logger.info('   POST /api/scan/start - Scan logged-in account (followers + following)');
   logger.info('   POST /api/scan/upload - Import Instagram data download JSON');
+  logger.info('   POST /api/apify/scan - Scan followers + following via Apify');
+  logger.info('   GET  /api/apify/status - Apify scan / scheduler status');
+  logger.info('   POST /api/apify/accept - Save a held-back Apify result anyway');
   logger.info('   GET  /api/import/status - Auto-import watcher status');
   logger.info('   GET  /api/scan/latest - Latest cached snapshot + comparison');
+  logger.info('   GET  /api/history - Followed/unfollowed action counts');
+  logger.info('   POST /api/history/clear - Reset action history (all|followed|unfollowed)');
   logger.info(`   GET  /                 - UI (served from Backend/public/)`);
 });
 

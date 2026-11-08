@@ -52,8 +52,9 @@ npm start                  # http://localhost:4545
 Three ways to get follower/following lists, in order of reliability:
 
 1. **Import from Instagram data download** *(recommended)* — official, complete, accurate. Request your data at [instagram.com/download/request/](https://www.instagram.com/download/request/) (24–48 hr turnaround), upload via the UI or drop the ZIP into a watched folder for auto-import.
-2. **Live scan via DOM scrape** — opens the followers/following modal and harvests usernames as you scroll. Works on healthy sessions but Instagram throttles flagged sessions aggressively (often returning partial lists).
-3. *(Removed)* IG's internal REST API (`/api/v1/friendships/<id>/followers/`) was Meta's old path — they migrated web traffic to GraphQL with rotating doc_ids in 2025, and now redirect legacy v1 friendship requests to `/`. The endpoint is no longer usable from web origins.
+2. **Scan via Apify** — runs the [`apify/instagram-followers-following-scraper`](https://apify.com/apify/instagram-followers-following-scraper) Actor in the cloud: no browser, no load on your IG session, can run on a schedule. Needs `APIFY_TOKENS`, a **public** IG account, and a **paid** Apify plan for full lists (the free plan only returns the first page). See [Apify scan](#apify-scan).
+3. **Live scan via DOM scrape** — opens the followers/following modal and harvests usernames as you scroll. Works on healthy sessions but Instagram throttles flagged sessions aggressively (often returning partial lists).
+4. *(Removed)* IG's internal REST API (`/api/v1/friendships/<id>/followers/`) was Meta's old path — they migrated web traffic to GraphQL with rotating doc_ids in 2025, and now redirect legacy v1 friendship requests to `/`. The endpoint is no longer usable from web origins.
 
 ---
 
@@ -111,6 +112,9 @@ Adding a new job is `~30 lines`: a new file in `jobs/` that calls `withDriverSes
 | Live scan | `POST /api/scan/start` | "My account" → Scan now |
 | Import data download | `POST /api/scan/upload` | "My account" → Import data download |
 | Auto-import watcher status | `GET /api/import/status` | (status pill below the scan row) |
+| Scan via Apify | `POST /api/apify/scan` | "My account" → Scan via Apify |
+| Apify scan / schedule status | `GET /api/apify/status` | (Apify line below the scan row) |
+| Save held-back Apify result | `POST /api/apify/accept` | Apify line → Save anyway |
 | Read latest snapshot | `GET /api/scan/latest` | (auto-loaded on page open) |
 | Browse + filter lists | (client-side from snapshot) | "Browse & select" |
 | Unfollow non-followers | `POST /api/unfollow/start` | "Automation" |
@@ -226,6 +230,18 @@ See `.env.example` for the full list with comments. The important ones:
 If you set `IG_IMPORT_DIR` to a folder that receives IG export ZIPs (typically your Google Drive desktop sync target), the backend polls that folder every `IG_IMPORT_POLL_MS` milliseconds. On each new `.zip` it extracts `followers_*.json` + `following.json` from `connections/followers_and_following/` and overwrites `data/snapshot.json`. Owner is auto-recovered from `personal_information/personal_information.json` inside the ZIP. Processed ZIPs are tracked in `data/import-state.json` so they aren't re-imported.
 
 The UI shows a status pill below the scan row: watched folder + last import time + last error if any.
+
+---
+
+## Apify scan
+
+Set `APIFY_TOKENS` in `.env` and the **Scan via Apify** button lights up. It starts two Actor runs in parallel (followers, following — the Actor takes one list type per run), waits for both, and writes `data/snapshot.json`. Stop aborts both runs, so billing stops too. The owner is the username in the UI box, else `IG_IMPORT_OWNER`, else the last snapshot's owner.
+
+**Automate it:** set `APIFY_SCAN_INTERVAL_HOURS` (e.g. `24` daily, `168` weekly). The schedule survives restarts (it's based on the last attempt in `data/apify-state.json`), and a scan due while another job is running waits for it to finish. The UI reloads the snapshot automatically when a scheduled scan lands.
+
+**Incomplete-result guard:** the snapshot decides who shows up under "not following back", so a truncated list would put mutuals up for unfollowing. A result is **held back, not saved**, when a list shrinks more than `APIFY_MAX_SHRINK_PCT` (default 25%) compared to the last snapshot (following is compared after removing accounts this app unfollowed), when a list hits `APIFY_RESULTS_LIMIT`, or when both lists are empty. The Apify status line then shows **Save anyway**, which saves the held-back result without paying for another run.
+
+**Cost / plan:** billed per result returned (from $1.15 per 1,000 on paid plans). One scan ≈ followers + following results. On the **free** plan the Actor returns only the first page of each list, so full scans need a paid plan; the job logs a warning when it detects the free plan. `APIFY_MAX_CHARGE_USD` caps the spend per run. Private IG accounts can't be scraped.
 
 ---
 

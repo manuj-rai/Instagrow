@@ -19,6 +19,16 @@ function toInt(value, fallback) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+// Like toInt but allows fractions (e.g. 0.5 hours, $2.50). Non-positive → fallback.
+function toPosNum(value, fallback) {
+  const n = Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function toList(value) {
+  return String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 function toBool(value, fallback) {
   if (value === undefined || value === null) return fallback;
   const v = String(value).toLowerCase().trim();
@@ -47,6 +57,16 @@ function getConfig() {
     importDir: process.env.IG_IMPORT_DIR || "",
     importOwner: process.env.IG_IMPORT_OWNER || "",
     importPollMs: toInt(process.env.IG_IMPORT_POLL_MS, 30_000),
+    // Apify (apify/instagram-followers-following-scraper). Comma-separated
+    // tokens are tried in order; a token rejected for auth/quota falls through.
+    apifyTokens: toList(process.env.APIFY_TOKENS || process.env.APIFY_TOKEN),
+    apifyScanIntervalHours: toPosNum(process.env.APIFY_SCAN_INTERVAL_HOURS, 0), // 0 = no auto-scan
+    apifyResultsLimit: toInt(process.env.APIFY_RESULTS_LIMIT, 10_000),          // per list, per run
+    apifyMaxChargeUsd: toPosNum(process.env.APIFY_MAX_CHARGE_USD, 0),           // per run; 0 = no cap
+  };
+  config.apifyGuard = {
+    maxShrinkPct: Math.min(100, toInt(process.env.APIFY_MAX_SHRINK_PCT, 25)),
+    resultsLimit: config.apifyResultsLimit,
   };
 
   if (!config.chromeUserDataDir && config.nodeEnv === 'production') {

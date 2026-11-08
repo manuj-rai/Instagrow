@@ -130,9 +130,37 @@ async function waitForProfileReady(driver, timeoutMs) {
   return { ready: false, error: "Profile page did not become interactive in time" };
 }
 
+/** True when the WebDriver session / Chrome connection is gone (not a page problem). */
+function isSessionLost(err) {
+  const msg = (err && err.message) || "";
+  return /invalid session id|session deleted|no such window|target window already closed|chrome not reachable|disconnected|ECONNREFUSED|ECONNRESET/i.test(msg);
+}
+
+/**
+ * Navigates to a profile and waits until it's interactive. A page-load timeout
+ * isn't fatal: IG keeps loading media long after the profile is usable, so we
+ * stop the load and carry on — but only if the browser actually reached the
+ * target profile (never act on the previous page). Session loss is re-thrown.
+ */
+async function openProfile(driver, baseUrl, username, timeoutMs) {
+  try {
+    await driver.get(`${baseUrl}/${username}/`);
+  } catch (err) {
+    if (isSessionLost(err) || !/time(d)? ?out/i.test(err.message || "")) throw err;
+    try { await driver.executeScript("window.stop();"); } catch {}
+    const current = (await driver.getCurrentUrl().catch(() => "")).toLowerCase();
+    if (!current.includes(`/${username.toLowerCase()}`)) {
+      return { ready: false, error: "Page load timed out before reaching the profile" };
+    }
+  }
+  return waitForProfileReady(driver, timeoutMs);
+}
+
 module.exports = {
   jsFindAndClick,
   jsElementExists,
   waitForDialog,
   waitForProfileReady,
+  openProfile,
+  isSessionLost,
 };

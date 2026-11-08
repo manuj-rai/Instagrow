@@ -73,12 +73,26 @@ async function readClaimFromSession(driver, headerClaim) {
 
 async function fetchListViaApi(driver, userId, sourceType, { harvestAll, targetCount, onProgress, wwwClaim }) {
   const collected = new Set();
+  const seenCursors = new Set();      // cursors already walked — detects IG cursor cycles / repeats
   let maxId = "";
   let page = 0;
+  let transientStreak = 0;            // consecutive same-cursor retries (HTTP error / empty page)
+  let partial = false;                // true if we stopped for any reason other than a real end-of-list
   const wantedPool = harvestAll ? Infinity : Math.max(targetCount * 3, targetCount + 20);
+  // Absolute backstop so a never-null / rotating cursor can't spin forever.
+  // Mirrors the DOM fallback's iteration ceiling; 5000 * 200 = 1M usernames.
+  const MAX_PAGES = harvestAll ? 5000 : Math.max(50, Math.ceil(wantedPool / SCRAPE_API_PAGE_SIZE) * 3);
+  // Consecutive transient pages (HTTP error or empty-but-paginable) we ride out
+  // — with exponential backoff — before concluding the feed is genuinely stuck.
+  const MAX_TRANSIENT_STREAK = 6;
 
   while (true) {
     if (state.stopRequested) { log("⏹️  Stop requested during API pagination."); break; }
+    if (page >= MAX_PAGES) {
+      log(`⚠️  Hit page cap (${MAX_PAGES}) at ${collected.size} ${sourceType}; stopping.`);
+      partial = true;
+      break;
+    }
 
     const batch = await driver.executeAsyncScript(function (userId, sourceType, maxId, appId, pageSize, wwwClaim) {
       var cb = arguments[arguments.length - 1];
@@ -125,26 +139,74 @@ async function fetchListViaApi(driver, userId, sourceType, { harvestAll, targetC
         .catch(function (e) { cb({ ok: false, error: String((e && e.message) || e) }); });
     }, userId, sourceType, maxId, IG_APP_ID, SCRAPE_API_PAGE_SIZE, wwwClaim || null);
 
+    page += 1;
+
+    // Transient failure (HTTP non-200 / redirect-to-"/" / JSON parse fail / status:fail).
+    // A mid-pagination hiccup must NOT discard the pages already collected, and must
+    // NOT be read as end-of-list — back off and retry the SAME cursor.
     if (!batch || !batch.ok) {
       const err = batch ? batch.error : "unknown";
-      const bodySnippet = batch && batch.body ? ` | body[0..200]: ${batch.body.replace(/\s+/g, " ")}` : "";
-      throw new Error(`API page ${page + 1} failed: ${err}${bodySnippet}`);
+      transientStreak += 1;
+      if (transientStreak >= MAX_TRANSIENT_STREAK) {
+        if (collected.size > 0) {
+          log(`⚠️  API throttled (${err}); returning ${collected.size} ${sourceType} collected so far.`);
+          partial = true;
+          break;
+        }
+        // Nothing salvageable yet — let the caller fall back to the DOM scrape.
+        const bodySnippet = batch && batch.body ? ` | body[0..200]: ${batch.body.replace(/\s+/g, " ")}` : "";
+        throw new Error(`API page ${page} failed: ${err}${bodySnippet}`);
+      }
+      const backoff = Math.min(30000, SCRAPE_API_PAGE_DELAY_MS * Math.pow(2, transientStreak));
+      log(`⏳ API page ${page} transient (${err}); backoff ${Math.round(backoff / 1000)}s, retry ${transientStreak}/${MAX_TRANSIENT_STREAK}...`);
+      await sleep(backoff);
+      continue; // retry SAME maxId
     }
 
-    let added = 0;
-    for (const u of batch.users) {
-      if (!collected.has(u)) { collected.add(u); added += 1; }
+    // Empty page while a cursor is still present = throttle pacing, NOT end-of-list.
+    // Retry the SAME cursor with backoff rather than advancing past withheld users.
+    if (batch.users.length === 0 && batch.next_max_id) {
+      transientStreak += 1;
+      if (transientStreak >= MAX_TRANSIENT_STREAK) {
+        if (collected.size > 0) {
+          log(`⚠️  ${transientStreak} empty pages (likely throttled); returning ${collected.size} ${sourceType}.`);
+          partial = true;
+          break;
+        }
+        throw new Error(`API returned ${transientStreak} empty pages with no data — likely throttled/redirected.`);
+      }
+      const backoff = Math.min(30000, SCRAPE_API_PAGE_DELAY_MS * Math.pow(2, transientStreak));
+      log(`⏳ Empty page ${page} (cursor present); backoff ${Math.round(backoff / 1000)}s, retry ${transientStreak}/${MAX_TRANSIENT_STREAK}...`);
+      await sleep(backoff);
+      continue; // retry SAME maxId
     }
-    page += 1;
+
+    // Good page with data — fold in usernames. Duplicates are EXPECTED on the ranked
+    // `following` cursor (IG overlaps windows), so a page that adds 0 NEW users is NOT
+    // end-of-list: we advance the cursor THROUGH it. (Breaking here on added===0 was the
+    // original bug that truncated large lists to a fraction, e.g. 115 of 300+.)
+    transientStreak = 0;
+    for (const u of batch.users) collected.add(u);
     if (onProgress) onProgress(collected.size);
 
     if (collected.size >= wantedPool) break;
-    if (!batch.next_max_id || added === 0) break;
 
+    // The only reliable end-of-list signal: IG stops handing back a cursor.
+    if (!batch.next_max_id) break;
+    // A cursor we've already walked → IG is cycling; stop to avoid an infinite loop.
+    if (seenCursors.has(batch.next_max_id)) {
+      log(`⚠️  Pagination cursor repeated at ${collected.size} ${sourceType}; stopping.`);
+      partial = true;
+      break;
+    }
+    seenCursors.add(batch.next_max_id);
     maxId = batch.next_max_id;
     await sleep(SCRAPE_API_PAGE_DELAY_MS);
   }
 
+  if (partial) {
+    log(`⚠️  ${sourceType} list may be incomplete (${collected.size}); if it looks short, retry later or use the data-download import.`);
+  }
   return Array.from(collected);
 }
 

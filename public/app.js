@@ -14,6 +14,8 @@ import {
   renderRunBar,
   renderLogs,
   renderImportStatus,
+  renderHistory,
+  renderApifyStatus,
 } from "./render.js";
 
 // ---------- Polling /api/unfollow/status ----------
@@ -31,10 +33,21 @@ async function pollOnce() {
     const r = await api.importStatus();
     state.importStatus = r.status;
   } catch {}
+  // Action-memory counts (followed/unfollowed). Cheap; updates live during a run.
+  try {
+    const h = await api.history();
+    state.history = h.counts;
+  } catch {}
+  try {
+    const a = await api.apifyStatus();
+    state.apifyStatus = a.status;
+  } catch {}
   renderPill();
   renderScanInfo();
   renderImportStatus();
+  renderApifyStatus(handleApifyAccept);
   renderRunBar();
+  renderHistory(handleClearHistory);
   renderLogs();
   // If auto-import landed a new snapshot since last poll, reflect it in the UI.
   const lastIso = state.importStatus?.lastImportedAt || null;
@@ -42,12 +55,19 @@ async function pollOnce() {
     state.lastImportedSeen = lastIso;
     loadSnapshotIfAny();
   }
+  // Same for an Apify scan (manual or scheduled) that just saved a snapshot.
+  const apifyIso = state.apifyStatus?.lastSuccessAt || null;
+  if (apifyIso && state.lastApifySeen !== apifyIso) {
+    state.lastApifySeen = apifyIso;
+    loadSnapshotIfAny();
+  }
   schedulePoll();
 }
 
 function schedulePoll() {
   clearTimeout(state.pollHandle);
-  const delay = state.status?.running ? 2000 : 5000;
+  // Tight cadence while a job is running so the log feed updates near-real-time.
+  const delay = state.status?.running ? 800 : 4000;
   state.pollHandle = setTimeout(pollOnce, delay);
 }
 
@@ -74,7 +94,58 @@ function handleTabChange() {
   renderRunBar();
 }
 
+async function handleClearHistory(which) {
+  const label = which === "all" ? "all action memory" : `${which} memory`;
+  if (!confirm(`Clear ${label}? Previously-actioned accounts can be targeted again.`)) return;
+  try {
+    const r = await api.historyClear(which);
+    state.history = r.counts;
+    renderHistory(handleClearHistory);
+    // The unfollow list is filtered by history server-side, so refresh it —
+    // accounts we'd unfollowed before can reappear once memory is cleared.
+    await loadSnapshotIfAny();
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+async function handleApifyAccept() {
+  const p = state.apifyStatus?.pending;
+  if (!p) return;
+  const ok = confirm(
+    `Save the held-back Apify result (${p.followers} followers, ${p.following} following) as your snapshot?\n\n` +
+    `It was held back because it looks incomplete. If it is truncated, people who DO follow you ` +
+    `will show up under "not following back".`
+  );
+  if (!ok) return;
+  try {
+    await api.apifyAccept();
+    await loadSnapshotIfAny();
+    pollOnce();
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
 // ---------- DOM events ----------
+
+els.apifyBtn.onclick = async () => {
+  const owner = els.ownerInput.value.trim().replace(/^@/, "") || state.snapshot?.owner || "";
+  const c = state.snapshot?.counts;
+  const est = c ? c.followers + c.following : 0;
+  // Apify bills per result; $1.15/1,000 is the cheapest listed tier.
+  const costLine = est
+    ? `\n\n~${est.toLocaleString()} results based on your last snapshot. Apify bills per result ` +
+      `(from $1.15 per 1,000), so expect at least ~$${((est * 1.15) / 1000).toFixed(2)}.`
+    : "";
+  if (!confirm(`Fetch ${owner ? "@" + owner : "your"} followers + following via Apify?${costLine}`)) return;
+  try {
+    await api.apifyScan(owner || null);
+    pollOnce();
+  } catch (err) {
+    showError(err.message);
+  }
+};
 
 els.scanBtn.onclick = async () => {
   try {

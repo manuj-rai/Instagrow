@@ -18,6 +18,18 @@ export function relTime(iso) {
   return `${Math.floor(hr / 24)}d ago`;
 }
 
+// Future counterpart of relTime: "in 5m", "in 3h", "in 2d", or "due now".
+export function untilTime(iso) {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (Number.isNaN(ms)) return "";
+  if (ms <= 60_000) return "due now";
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return `in ${min}m`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `in ${hr}h`;
+  return `in ${Math.round(hr / 24)}d`;
+}
+
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",

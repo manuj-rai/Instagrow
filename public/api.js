@@ -26,6 +26,13 @@ export const api = {
       body: JSON.stringify({ owner, followers, following }),
     }),
   importStatus: () => jsonFetch("/api/import/status"),
+  apifyScan: (ownerUsername) =>
+    jsonFetch("/api/apify/scan", {
+      method: "POST",
+      body: JSON.stringify(ownerUsername ? { ownerUsername } : {}),
+    }),
+  apifyStatus: () => jsonFetch("/api/apify/status"),
+  apifyAccept: () => jsonFetch("/api/apify/accept", { method: "POST" }),
   unfollowStart: (usernames) =>
     jsonFetch("/api/unfollow/start", {
       method: "POST",
@@ -40,4 +47,10 @@ export const api = {
       }),
     }),
   jobStop: () => jsonFetch("/api/job/stop", { method: "POST" }),
+  history: () => jsonFetch("/api/history"),
+  historyClear: (which = "all") =>
+    jsonFetch("/api/history/clear", {
+      method: "POST",
+      body: JSON.stringify({ which }),
+    }),
 };

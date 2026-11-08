@@ -57,7 +57,8 @@ async function clickUnfollowFlow(driver, elementTimeoutMs, dryRun) {
     if (dryRun) {
       const exists = await jsElementExists(driver, followingXpaths);
       if (!exists) {
-        return { ok: false, error: "Not following this user (Following button not found)" };
+        // Already not following — nothing to undo. skip (not a failure).
+        return { ok: false, error: "Not following this user", skip: true, notFollowing: true };
       }
       log("DRY_RUN: Would click 'Following' button");
       return { ok: true, dryRun: true };
@@ -66,7 +67,8 @@ async function clickUnfollowFlow(driver, elementTimeoutMs, dryRun) {
     log("Looking for 'Following' button...");
     const clickResult = await jsFindAndClick(driver, followingXpaths, elementTimeoutMs);
     if (!clickResult.found) {
-      return { ok: false, error: "Not following this user (Following button not found)" };
+      // Already not following — nothing to undo. skip (not a failure).
+      return { ok: false, error: "Not following this user", skip: true, notFollowing: true };
     }
 
     log("Clicked 'Following' button, waiting for dialog...");

@@ -1,7 +1,7 @@
 // State → DOM. Each function is responsible for one UI region.
 
 import { state, els, TABS } from "./state.js";
-import { fmt, relTime, escapeHtml } from "./util.js";
+import { fmt, relTime, untilTime, escapeHtml } from "./util.js";
 
 export function renderPill() {
   const dot = els.pill.querySelector(".dot");
@@ -38,16 +38,50 @@ export function renderImportStatus() {
     Auto-import watching <code>${escapeHtml(s.dir)}</code> · ${lastLine}${errLine}`;
 }
 
+export function renderApifyStatus(onAccept) {
+  const s = state.apifyStatus;
+  const el = els.apifyStatusEl;
+  if (!s || !s.enabled) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+
+  const last = s.lastSuccessAt
+    ? `last scan ${relTime(s.lastSuccessAt)} (${fmt(s.lastCounts?.followers || 0)}f / ${fmt(s.lastCounts?.following || 0)}g)`
+    : "no successful scan yet";
+  const schedule = s.intervalHours > 0
+    ? `auto-scan every ${s.intervalHours}h${s.nextRunAt ? `, next ${untilTime(s.nextRunAt)}` : ""}`
+    : "auto-scan off";
+  const cost = typeof s.lastUsageUsd === "number" ? ` · last run $${s.lastUsageUsd.toFixed(2)}` : "";
+  const err = s.lastError ? ` · <span class="err">${escapeHtml(s.lastError.message)}</span>` : "";
+  const accept = s.pending
+    ? ` <button class="inline-btn" data-act="accept" ${state.status?.running ? "disabled" : ""}>` +
+      `Save anyway (${fmt(s.pending.followers)}f / ${fmt(s.pending.following)}g)</button>`
+    : "";
+  const dot = s.lastError ? "warn" : s.lastSuccessAt ? "ok" : "idle";
+
+  el.innerHTML = `<span class="dot ${dot}"></span>Apify · ${last} · ${schedule}${cost}${err}${accept}`;
+  const btn = el.querySelector('[data-act="accept"]');
+  if (btn && onAccept) btn.onclick = onAccept;
+}
+
 export function renderScanInfo() {
   const snap = state.snapshot;
   const running = state.status?.running;
-  const isScanning = running && state.status?.jobType === "scan";
+  const jobType = state.status?.jobType;
+  const isScanning = running && (jobType === "scan" || jobType === "apify-scan");
 
   els.scanBtn.disabled = !!running;
-  els.scanBtn.textContent = isScanning
+  els.scanBtn.textContent = running && jobType === "scan"
     ? "Scanning..."
     : snap ? "Re-scan" : "Scan now";
   els.ownerInput.disabled = !!running;
+
+  const apifyReady = !!state.apifyStatus?.enabled;
+  els.apifyBtn.disabled = !!running || !apifyReady;
+  els.apifyBtn.title = apifyReady ? "" : "Set APIFY_TOKENS in .env to enable";
+  els.apifyBtn.textContent = running && jobType === "apify-scan" ? "Apify running..." : "Scan via Apify";
 
   if (isScanning) {
     els.scanInfo.classList.remove("has-data");
@@ -200,11 +234,45 @@ export function renderRunBar() {
   }
 }
 
+export function renderHistory(onClear) {
+  const el = els.historyBar;
+  if (!el) return;
+  const counts = state.history;
+  if (!counts || (!counts.followed && !counts.unfollowed)) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  const running = !!state.status?.running;
+  el.classList.remove("hidden");
+  el.innerHTML = `
+    <span class="history-label">Action memory</span>
+    <span class="history-stat">${fmt(counts.followed)} followed</span>
+    <span class="sep">·</span>
+    <span class="history-stat">${fmt(counts.unfollowed)} unfollowed</span>
+    <span class="history-hint">— these accounts are auto-skipped next time</span>
+    <span style="flex: 1"></span>
+    <button class="history-clear" data-which="all" ${running ? "disabled" : ""}>Clear memory</button>`;
+  const btn = el.querySelector(".history-clear");
+  if (btn && onClear) btn.onclick = () => onClear(btn.dataset.which);
+}
+
 export function renderLogs() {
   const logs = state.status?.logs;
   if (!logs?.length) {
     els.logs.innerHTML = `<span class="empty">No log entries yet.</span>`;
     return;
   }
-  els.logs.textContent = logs.join("\n");
+  // Logs are newest-first. Preserve scroll if the user has scrolled away from
+  // the top (reading history); otherwise pin them to the newest entry.
+  const wasAtTop = els.logs.scrollTop < 24;
+  els.logs.innerHTML = logs.map((entry) => {
+    if (typeof entry === "string") {
+      return `<div class="log-line log-info">${escapeHtml(entry)}</div>`;
+    }
+    const lvl = entry.level || "info";
+    const ts = entry.timestamp ? `[${escapeHtml(entry.timestamp)}] ` : "";
+    return `<div class="log-line log-${escapeHtml(lvl)}">${ts}${escapeHtml(entry.message || "")}</div>`;
+  }).join("");
+  if (wasAtTop) els.logs.scrollTop = 0;
 }

@@ -11,6 +11,8 @@ export const state = {
   statusError: null,   // string | null
   snapshot: null,      // { owner, scannedAt, counts, lists }
   importStatus: null,  // last /api/import/status response (status field)
+  apifyStatus: null,   // last /api/apify/status response (status field)
+  history: null,       // { followed, unfollowed } action-memory counts
   selected: new Set(),
   tab: "notFollowingBack",
   filter: "",
@@ -27,6 +29,8 @@ export const els = {
   importBtn: $("import-btn"),
   importInput: $("import-input"),
   importStatusEl: $("import-status"),
+  apifyBtn: $("apify-btn"),
+  apifyStatusEl: $("apify-status"),
   results: $("results-section"),
   stats: $("stats"),
   browse: $("browse-section"),
@@ -42,6 +46,7 @@ export const els = {
   growBtn: $("grow-btn"),
   runStatus: $("run-status"),
   runMeta: $("run-meta"),
+  historyBar: $("history-bar"),
   unfollowBtn: $("unfollow-btn"),
   stopBtn: $("stop-btn"),
   progressWrap: $("progress-wrap"),

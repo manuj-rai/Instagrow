@@ -1,4 +1,26 @@
-const MAX_LOG_ENTRIES = 400;
+const fs = require("fs");
+const path = require("path");
+
+const MAX_LOG_ENTRIES = 5000;
+const LOG_DIR = path.join(__dirname, "..", "data", "logs");
+let fileStream = null;
+let fileStreamDayKey = null;
+
+function ensureLogFile() {
+  const d = new Date();
+  const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  if (dayKey === fileStreamDayKey && fileStream) return fileStream;
+  try {
+    if (fileStream) try { fileStream.end(); } catch {}
+    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+    fileStream = fs.createWriteStream(path.join(LOG_DIR, `${dayKey}.log`), { flags: "a" });
+    fileStreamDayKey = dayKey;
+  } catch (err) {
+    // File logging is best-effort — never crash the app if disk is full / read-only.
+    fileStream = null;
+  }
+  return fileStream;
+}
 
 const state = {
   running: false,
@@ -38,27 +60,22 @@ function ensureDayCounter() {
 
 function log(line, level = 'info') {
   const timestamp = new Date().toISOString();
-  const msg = `[${timestamp}] ${line}`;
-  
   state.lastMessage = line;
   state.logs.unshift({ timestamp, message: line, level });
-  
   if (state.logs.length > MAX_LOG_ENTRIES) {
     state.logs.length = MAX_LOG_ENTRIES;
   }
 
-  // Also log to console
-  const consoleMsg = `[${level.toUpperCase()}] ${line}`;
-  switch(level) {
-    case 'error':
-      console.error(consoleMsg);
-      break;
-    case 'warn':
-      console.warn(consoleMsg);
-      break;
-    default:
-      console.log(consoleMsg);
+  // Single line per event: written once to the daily log file and once to
+  // stdout (so terminal + tail -f see the same thing).
+  const formatted = `[${timestamp}] [${level.toUpperCase().padEnd(5)}] ${line}`;
+  const stream = ensureLogFile();
+  if (stream) {
+    try { stream.write(formatted + "\n"); } catch {}
   }
+  if (level === 'error') console.error(formatted);
+  else if (level === 'warn') console.warn(formatted);
+  else console.log(formatted);
 }
 
 function logError(line, error) {

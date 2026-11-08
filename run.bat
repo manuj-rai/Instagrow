@@ -67,7 +67,10 @@ if not errorlevel 1 (
         --user-data-dir="%BOT_DIR%" ^
         --profile-directory="%CHROME_PROFILE%" ^
         --no-first-run ^
-        --no-default-browser-check
+        --no-default-browser-check ^
+        --disable-background-timer-throttling ^
+        --disable-backgrounding-occluded-windows ^
+        --disable-renderer-backgrounding
     call :wait_http "http://localhost:%DEBUG_PORT%/json/version" 30 "chrome"
     if errorlevel 1 exit /b 1
 )

@@ -48,6 +48,7 @@
             autocomplete="off"
           />
           <button id="scan-btn" class="primary">Scan now</button>
+          <button id="apify-btn" class="primary" type="button" disabled>Scan via Apify</button>
           <button id="import-btn" class="primary" type="button">Import data download</button>
           <input
             id="import-input"
@@ -58,6 +59,7 @@
           />
         </div>
         <div id="import-status" class="import-status hidden"></div>
+        <div id="apify-status" class="import-status hidden"></div>
       </section>
 
       <div class="top-row">
@@ -116,6 +118,8 @@
               </button>
               <button id="stop-btn" class="danger hidden">Stop</button>
             </div>
+
+            <div id="history-bar" class="history-bar hidden"></div>
 
             <div id="progress-wrap" class="hidden">
               <div class="progress">
