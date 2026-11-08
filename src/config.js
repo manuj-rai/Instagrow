@@ -4,7 +4,7 @@ const DEFAULTS = {
   port: 4545,
   minDelayMs: 15_000,
   maxDelayMs: 30_000,
-  dailyLimit: 500,
+  dailyLimit: 80, // conservative default; see readme "Safe pacing"
   baseUrl: "https://www.instagram.com",
   pageLoadTimeoutMs: 45_000,
   elementTimeoutMs: 12_000,

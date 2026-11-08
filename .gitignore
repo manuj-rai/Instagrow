@@ -39,3 +39,5 @@ build/
 
 # Cached scan snapshots
 data/
+# Local Claude Code settings (personal paths / permissions)
+.claude/

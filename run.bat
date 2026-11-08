@@ -1,6 +1,6 @@
 @echo off
 setlocal enableextensions enabledelayedexpansion
-title IG Unfollower Runner
+title Instagrow
 
 REM ============================================================
 REM  Launches Chrome (debug port) + Backend, then opens the UI.

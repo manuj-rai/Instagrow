@@ -1,7 +1,7 @@
 {
-  "name": "ig-unfollower",
+  "name": "instagrow",
   "version": "1.0.0",
-  "description": "Local-first Instagram automation: scan your account, find non-followers, unfollow safely, and grow followers via targeted scrape.",
+  "description": "Local-first Instagram helper: find non-followers, unfollow in paced batches, grow via targeted follows. Selenium + Express, optional Apify scans.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -16,7 +16,9 @@
     "unfollow",
     "follow",
     "scan",
-    "growth"
+    "growth",
+    "apify",
+    "instagram-unfollow"
   ],
   "author": "",
   "license": "MIT",
@@ -38,5 +40,13 @@
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manuj-rai/Instagrow.git"
+  },
+  "homepage": "https://github.com/manuj-rai/Instagrow#readme",
+  "bugs": {
+    "url": "https://github.com/manuj-rai/Instagrow/issues"
   }
 }
