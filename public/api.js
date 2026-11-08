@@ -48,6 +48,7 @@ export const api = {
     }),
   jobStop: () => jsonFetch("/api/job/stop", { method: "POST" }),
   history: () => jsonFetch("/api/history"),
+  timeline: (days = 90) => jsonFetch(`/api/history/timeline?days=${days}`),
   historyClear: (which = "all") =>
     jsonFetch("/api/history/clear", {
       method: "POST",

@@ -66,6 +66,46 @@ function historyCounts() {
   };
 }
 
+function localDayKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Per-day action counts for the last `days` days (oldest first, local time) and
+// the most recent actions — feeds the dashboard's activity chart and feed.
+function historyTimeline(days = 30, recentCount = 12) {
+  const h = loadHistory();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const buckets = [];
+  const byDay = new Map();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const bucket = { date: localDayKey(d), followed: 0, unfollowed: 0 };
+    buckets.push(bucket);
+    byDay.set(bucket.date, bucket);
+  }
+
+  const recent = [];
+  for (const kind of ["followed", "unfollowed"]) {
+    for (const [username, at] of Object.entries(h[kind])) {
+      const when = new Date(at);
+      if (Number.isNaN(when.getTime())) continue;
+      const bucket = byDay.get(localDayKey(when));
+      if (bucket) bucket[kind] += 1;
+      recent.push({ username, kind, at });
+    }
+  }
+  recent.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+
+  return {
+    days: buckets,
+    recent: recent.slice(0, recentCount),
+    recentFollowed: recent.filter((a) => a.kind === "followed").slice(0, recentCount),
+    totals: { followed: Object.keys(h.followed).length, unfollowed: Object.keys(h.unfollowed).length },
+  };
+}
+
 // which: "all" | "followed" | "unfollowed"
 function clearHistory(which = "all") {
   if (which === "all") return saveHistory(emptyHistory());
@@ -84,5 +124,6 @@ module.exports = {
   followedSet,
   unfollowedSet,
   historyCounts,
+  historyTimeline,
   clearHistory,
 };

@@ -8,7 +8,6 @@ import { classifyAndParseFiles } from "./ig-parser.js";
 import {
   renderPill,
   renderScanInfo,
-  renderResults,
   renderBrowse,
   renderList,
   renderRunBar,
@@ -17,6 +16,77 @@ import {
   renderHistory,
   renderApifyStatus,
 } from "./render.js";
+import {
+  renderDashboard,
+  renderChart,
+  renderFeeds,
+  renderFreshness,
+  renderSidebar,
+} from "./dashboard.js";
+
+// ---------- Routing (#dashboard | #review | #grow | #activity | #sources) ----------
+
+const VIEWS = ["dashboard", "review", "grow", "activity", "sources"];
+
+function applyRoute() {
+  const name = location.hash.slice(1);
+  const view = VIEWS.includes(name) ? name : "dashboard";
+  let title = "Dashboard";
+  document.querySelectorAll(".view").forEach((v) => {
+    const on = v.dataset.view === view;
+    v.classList.toggle("hidden", !on);
+    if (on) title = v.dataset.title;
+  });
+  document.querySelectorAll(".nav-item").forEach((a) => {
+    if (a.dataset.view === view) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  document.getElementById("page-title").textContent = title;
+  document.title = view === "dashboard" ? "Instagrow" : `${title} · Instagrow`;
+  document.getElementById("topbar-update").classList.toggle("hidden", view === "sources");
+  // The chart measures its container, which has no width while hidden.
+  if (view === "dashboard") renderChart();
+}
+window.addEventListener("hashchange", applyRoute);
+
+// Overlap strip / legend → open that list in Review.
+function pickList(tab) {
+  state.tab = tab;
+  renderBrowse(handleTabChange);
+  renderRunBar();
+  location.hash = "#review";
+}
+
+// ---------- Actions timeline (chart + feeds) ----------
+
+const TIMELINE_DAYS = 90; // fetch the widest range once; the chart slices it
+try {
+  const saved = Number(localStorage.getItem("instagrow-range"));
+  state.range = [14, 30, 90].includes(saved) ? saved : 30;
+} catch { state.range = 30; }
+
+async function loadTimeline() {
+  try {
+    state.timeline = await api.timeline(TIMELINE_DAYS);
+    renderChart();
+    renderFeeds();
+  } catch {}
+}
+
+document.querySelectorAll("#range [data-range]").forEach((btn) => {
+  btn.onclick = () => {
+    state.range = Number(btn.dataset.range);
+    try { localStorage.setItem("instagrow-range", String(state.range)); } catch {}
+    renderChart();
+  };
+});
+
+// Redraw the chart when its card changes width (window resize, sidebar breakpoint).
+let chartWidth = 0;
+new ResizeObserver((entries) => {
+  const w = Math.round(entries[0].contentRect.width);
+  if (w && w !== chartWidth) { chartWidth = w; renderChart(); }
+}).observe(document.getElementById("activity-chart"));
 
 // ---------- Polling /api/unfollow/status ----------
 
@@ -49,6 +119,21 @@ async function pollOnce() {
   renderRunBar();
   renderHistory(handleClearHistory);
   renderLogs();
+  renderSidebar();
+  renderFreshness();
+  // New follows/unfollows recorded → refresh the chart, feeds and hero counts.
+  const actions = (state.history?.followed || 0) + (state.history?.unfollowed || 0);
+  if (state.history && actions !== state.lastActionCount) {
+    const first = state.lastActionCount === undefined;
+    state.lastActionCount = actions;
+    loadTimeline();
+    if (state.snapshot) renderDashboard(pickList); // hero shows the unfollowed total
+    // The "not following back" list excludes unfollowed accounts server-side.
+    if (!first && !state.status?.running) loadSnapshotIfAny();
+  }
+  // A run just ended → reload lists so the review list drops what was unfollowed.
+  if (state.wasRunning && !state.status?.running) loadSnapshotIfAny();
+  state.wasRunning = !!state.status?.running;
   // If auto-import landed a new snapshot since last poll, reflect it in the UI.
   const lastIso = state.importStatus?.lastImportedAt || null;
   if (lastIso && state.lastImportedSeen !== lastIso) {
@@ -80,9 +165,14 @@ async function loadSnapshotIfAny() {
       state.snapshot = r.snapshot;
       state.selected.clear();
       renderScanInfo();
-      renderResults();
+      renderDashboard(pickList);
       renderBrowse(handleTabChange);
       renderRunBar();
+      renderSidebar();
+      renderFreshness();
+    } else {
+      renderDashboard(pickList);
+      renderBrowse(handleTabChange);
     }
   } catch (err) {
     showError(`Could not load latest snapshot: ${err.message}`);
@@ -93,6 +183,17 @@ function handleTabChange() {
   renderBrowse(handleTabChange);
   renderRunBar();
 }
+
+// ---------- Theme (light / dark; no saved choice = follow the OS) ----------
+
+els.themeBtn.onclick = () => {
+  const root = document.documentElement;
+  const current = root.getAttribute("data-theme") ||
+    (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = current === "dark" ? "light" : "dark";
+  root.setAttribute("data-theme", next);
+  try { localStorage.setItem("instagrow-theme", next); } catch {}
+};
 
 async function handleClearHistory(which) {
   const label = which === "all" ? "all action memory" : `${which} memory`;
@@ -261,5 +362,6 @@ els.growBtn.onclick = async () => {
 
 // ---------- Boot ----------
 
+applyRoute();
 loadSnapshotIfAny();
 pollOnce();

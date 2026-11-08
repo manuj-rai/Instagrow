@@ -1,7 +1,7 @@
 // Shared mutable state + cached DOM refs. Imported by render.js and app.js.
 
 export const TABS = [
-  { id: "notFollowingBack", label: "unfollowers" },
+  { id: "notFollowingBack", label: "Not following back" },
   { id: "mutuals", label: "Mutuals" },
   { id: "fans", label: "Fans" },
 ];
@@ -23,6 +23,7 @@ const $ = (id) => document.getElementById(id);
 
 export const els = {
   pill: $("backend-pill"),
+  themeBtn: $("theme-btn"),
   scanInfo: $("scan-info"),
   ownerInput: $("owner-input"),
   scanBtn: $("scan-btn"),

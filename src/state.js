@@ -49,12 +49,36 @@ function nowDayKey() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// Actions already recorded today in data/history.json. Seeds the daily counter
+// so a backend restart can't reset the daily safety limit to 0. Slightly
+// conservative: accounts skipped as "already (un)followed" are recorded too.
+function actionsRecordedOn(dayKey) {
+  try {
+    const { loadHistory } = require("./history");
+    const h = loadHistory();
+    let n = 0;
+    for (const kind of ["followed", "unfollowed"]) {
+      for (const at of Object.values(h[kind])) {
+        const d = new Date(at);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        if (key === dayKey) n += 1;
+      }
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
 function ensureDayCounter() {
   const key = nowDayKey();
   if (state.dayKey !== key) {
+    const firstCheck = state.dayKey === null;
     state.dayKey = key;
-    state.dailyCount = 0;
-    log(`Day counter reset for ${key}`);
+    state.dailyCount = firstCheck ? actionsRecordedOn(key) : 0;
+    log(firstCheck && state.dailyCount
+      ? `Day counter for ${key} restored from history: ${state.dailyCount} action(s) already today`
+      : `Day counter reset for ${key}`);
   }
 }
 

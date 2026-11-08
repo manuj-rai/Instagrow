@@ -4,164 +4,328 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Instagrow</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    />
     <link rel="stylesheet" href="/styles.css" />
+    <!-- Applies the saved light/dark choice before first paint (no flash). -->
+    <script src="/theme.js"></script>
   </head>
   <body>
-    <div class="app">
-      <header class="top">
-        <div>
-          <h1>Instagrow</h1>
-          <span class="subtitle">
-            Scan your account, find non-followers, grow safely
-          </span>
-        </div>
-        <div id="backend-pill" class="status-pill" title="">
-          <span class="dot"></span>
-          <span class="label">Connecting...</span>
-        </div>
-      </header>
+    <div class="shell">
+      <!-- ================= Sidebar ================= -->
+      <aside class="sidebar">
+        <a class="brand" href="#dashboard">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">Instagrow</span>
+        </a>
 
-      <section class="panel">
-        <h2>My account</h2>
-        <p class="panel-desc">
-          Live scan scrapes Instagram directly. If IG throttles the scrape
-          (returns only a partial list), use <strong>Import data download</strong>
-          for a complete, accurate snapshot — request your data at
-          <a href="https://www.instagram.com/download/request/" target="_blank" rel="noopener">instagram.com/download/request/</a>
-          (24–48&nbsp;hr turnaround). Inside the ZIP, the files are at
-          <code>connections/followers_and_following/followers_*.json</code> and
-          <code>following.json</code>.
-        </p>
+        <nav class="nav" aria-label="Main">
+          <a class="nav-item" href="#dashboard" data-view="dashboard">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>
+            <span>Dashboard</span>
+          </a>
+          <a class="nav-item" href="#review" data-view="review">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5 4 6l2.5-3M2.5 11 4 12.5 6.5 9.5M9 4.5h5M9 11h5"/></svg>
+            <span>Review</span>
+            <span id="nav-count-review" class="nav-count"></span>
+          </a>
+          <a class="nav-item" href="#grow" data-view="grow">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.5" cy="5.5" r="2.5"/><path d="M2 13.5c.6-2.3 2.4-3.5 4.5-3.5s3.9 1.2 4.5 3.5M12.5 5v4M10.5 7h4"/></svg>
+            <span>Grow</span>
+          </a>
+          <a class="nav-item" href="#activity" data-view="activity">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8.5h3l2-5 3 9 2-4h3"/></svg>
+            <span>Activity</span>
+            <span id="nav-live" class="nav-live hidden" title="A run is in progress"></span>
+          </a>
+          <a class="nav-item" href="#sources" data-view="sources">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/></svg>
+            <span>Data sources</span>
+          </a>
+        </nav>
 
-        <div class="scan-row">
-          <div class="scan-info" id="scan-info">
-            <div class="scan-info-line">
-              No snapshot yet — click <strong>Scan now</strong> or
-              <strong>Import data download</strong>.
-            </div>
+        <a id="run-mini" class="run-mini" href="#activity"></a>
+
+        <div class="sidebar-foot">
+          <div id="backend-pill" class="conn" title="">
+            <span class="dot"></span>
+            <span class="label">Connecting…</span>
           </div>
-          <input
-            id="owner-input"
-            type="text"
-            placeholder="Your IG username (auto-detected if blank)"
-            spellcheck="false"
-            autocomplete="off"
-          />
-          <button id="scan-btn" class="primary">Scan now</button>
-          <button id="apify-btn" class="primary" type="button" disabled>Scan via Apify</button>
-          <button id="import-btn" class="primary" type="button">Import data download</button>
-          <input
-            id="import-input"
-            type="file"
-            accept="application/json,.json"
-            multiple
-            hidden
-          />
+          <button id="theme-btn" class="icon-btn" type="button" aria-label="Toggle light / dark theme" title="Toggle theme">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.5a6.5 6.5 0 1 0 0 13V1.5Z" fill="currentColor"/><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
         </div>
-        <div id="import-status" class="import-status hidden"></div>
-        <div id="apify-status" class="import-status hidden"></div>
-      </section>
+      </aside>
 
-      <div class="top-row">
-        <section id="results-section" class="panel hidden">
-          <h2>Results</h2>
-          <p class="panel-desc">Snapshot of who follows whom.</p>
-          <div id="stats" class="stats"></div>
-        </section>
-
-        <section class="panel">
-          <h2>Grow followers</h2>
-          <p class="panel-desc">
-            Scrape a source profile and follow N random accounts. Some will
-            follow back.
-          </p>
-          <div class="grow-row">
-            <div class="grow-field">
-              <label class="field-label">Source username</label>
-              <input
-                id="grow-source"
-                type="text"
-                placeholder="e.g. natgeo"
-                spellcheck="false"
-                autocomplete="off"
-              />
-            </div>
-            <div class="grow-field">
-              <label class="field-label">Scrape from</label>
-              <select id="grow-type">
-                <option value="following">Following</option>
-                <option value="followers">Followers</option>
-              </select>
-            </div>
-            <div class="grow-field">
-              <label class="field-label">Count</label>
-              <input id="grow-count" type="number" min="1" max="500" value="30" />
-            </div>
-            <button id="grow-btn" class="primary">Discover &amp; follow</button>
+      <!-- ================= Main ================= -->
+      <div class="main">
+        <header class="topbar">
+          <div class="page-head">
+            <h1 id="page-title">Dashboard</h1>
+            <div id="scan-info" class="account"><span class="account-empty">No lists yet</span></div>
           </div>
-        </section>
-      </div>
+          <a id="topbar-update" class="btn" href="#sources">Update lists</a>
+        </header>
 
-      <div class="top-row">
-        <div class="main-col">
-          <section class="panel">
-            <h2>Automation</h2>
-            <div class="run-bar">
-              <span id="run-status">
-                <span class="status-dot"></span>
-                <span class="text">Idle</span>
-              </span>
-              <span id="run-meta" class="meta"></span>
-              <span style="flex: 1"></span>
-              <button id="unfollow-btn" class="primary">
-                Unfollow selected (0)
-              </button>
-              <button id="stop-btn" class="danger hidden">Stop</button>
-            </div>
+        <main class="content">
+          <!-- ---------- Dashboard ---------- -->
+          <section class="view" data-view="dashboard" data-title="Dashboard">
+            <section id="empty-state" class="card empty-card">
+              <h2>Get your follower lists</h2>
+              <p>
+                Instagrow compares who you follow with who follows you. Load your lists from
+                <a href="#sources">Data sources</a> to fill this dashboard. The Instagram data
+                download is the most complete source.
+              </p>
+            </section>
 
-            <div id="history-bar" class="history-bar hidden"></div>
-
-            <div id="progress-wrap" class="hidden">
-              <div class="progress">
-                <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+            <div id="dash" class="dash hidden">
+              <div class="dash-row row-kpi">
+                <article id="focus-card" class="card focus"></article>
+                <div id="kpi-tiles" class="tiles"></div>
               </div>
-              <div id="progress-meta" class="progress-meta"></div>
-            </div>
 
-            <h2 class="sub-heading">Logs</h2>
-            <div id="logs" class="logs">
-              <span class="empty">No log entries yet.</span>
+              <section id="results-section" class="card" aria-labelledby="overlap-title">
+                <div class="card-head">
+                  <div>
+                    <h2 id="overlap-title">How your lists overlap</h2>
+                    <p class="card-sub">Followers and following share your mutuals. Click a part to open that list.</p>
+                  </div>
+                </div>
+                <div id="stats"></div>
+              </section>
+
+              <div class="dash-row row-wide">
+                <section class="card chart-card" aria-labelledby="chart-title">
+                  <div class="card-head">
+                    <div>
+                      <h2 id="chart-title">Actions</h2>
+                      <p id="chart-sub" class="card-sub">Follows and unfollows recorded per day</p>
+                    </div>
+                    <div id="range" class="segmented" role="group" aria-label="Time range">
+                      <button type="button" data-range="14">14d</button>
+                      <button type="button" data-range="30">30d</button>
+                      <button type="button" data-range="90">90d</button>
+                    </div>
+                  </div>
+                  <div id="chart-legend" class="chart-legend"></div>
+                  <div id="activity-chart" class="chart"></div>
+                  <details class="table-view">
+                    <summary>View as table</summary>
+                    <div id="chart-table"></div>
+                  </details>
+                </section>
+
+                <section class="card" aria-labelledby="changes-title">
+                  <div class="card-head">
+                    <div>
+                      <h2 id="changes-title">Follower changes</h2>
+                      <p id="changes-sub" class="card-sub">Compared with your previous list update</p>
+                    </div>
+                  </div>
+                  <div id="changes"></div>
+                </section>
+              </div>
+
+              <div class="dash-row row-halves">
+                <section class="card" aria-labelledby="feed-title">
+                  <div class="card-head">
+                    <h2 id="feed-title">Recent actions</h2>
+                    <a class="card-link" href="#activity">Open log</a>
+                  </div>
+                  <ul id="feed" class="feed"></ul>
+                </section>
+
+                <section class="card" aria-labelledby="fresh-title">
+                  <div class="card-head">
+                    <h2 id="fresh-title">Data freshness</h2>
+                    <a class="card-link" href="#sources">Manage</a>
+                  </div>
+                  <dl id="freshness" class="fresh"></dl>
+                </section>
+              </div>
             </div>
           </section>
-        </div>
 
-        <aside class="side-col">
-          <section id="browse-section" class="panel hidden">
-            <h2>Browse &amp; select</h2>
-            <p class="panel-desc">
-              Pick targets in <em>Not following back</em> to unfollow.
-            </p>
+          <!-- ---------- Review ---------- -->
+          <section class="view hidden" data-view="review" data-title="Review">
+            <section id="browse-section" class="card review hidden" aria-label="Review accounts">
+              <div id="tabs" class="tabs" role="tablist"></div>
 
-            <div id="tabs" class="tabs"></div>
+              <div class="toolbar">
+                <div class="search">
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                  <input id="filter-input" type="search" placeholder="Search usernames" aria-label="Search usernames" />
+                </div>
+                <span id="list-count" class="count"></span>
+                <button id="select-all-btn" class="btn btn-ghost" type="button">Select shown</button>
+                <button id="clear-sel-btn" class="btn btn-ghost" type="button">Clear (0)</button>
+              </div>
 
-            <div class="list-actions">
-              <input
-                id="filter-input"
-                type="search"
-                placeholder="Filter usernames..."
-              />
-              <button id="select-all-btn">Select shown</button>
-              <button id="clear-sel-btn">Clear (0)</button>
-              <span id="list-count" class="count"></span>
-            </div>
+              <div id="user-list" class="list"></div>
 
-            <div id="user-list" class="list"></div>
+              <div class="review-foot">
+                <p class="hint">Accounts are unfollowed one at a time, with a random pause between each.</p>
+                <button id="unfollow-btn" class="btn btn-primary" type="button">Unfollow selected (0)</button>
+              </div>
+            </section>
+            <section id="review-empty" class="card empty-card">
+              <h2>Nothing to review yet</h2>
+              <p>Load your follower lists from <a href="#sources">Data sources</a> first.</p>
+            </section>
           </section>
-        </aside>
+
+          <!-- ---------- Grow ---------- -->
+          <section class="view hidden" data-view="grow" data-title="Grow">
+            <div class="dash-row row-halves">
+              <section class="card grow" aria-labelledby="grow-title">
+                <div class="card-head">
+                  <div>
+                    <h2 id="grow-title">Discover &amp; follow</h2>
+                    <p class="card-sub">Follow random accounts from another profile's followers or following. Some will follow back.</p>
+                  </div>
+                </div>
+                <div class="grow-form">
+                  <label class="field field-wide">
+                    <span class="field-label">Source profile</span>
+                    <input id="grow-source" type="text" placeholder="e.g. natgeo" spellcheck="false" autocomplete="off" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">From their</span>
+                    <select id="grow-type">
+                      <option value="following">Following</option>
+                      <option value="followers">Followers</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">How many</span>
+                    <input id="grow-count" type="number" min="1" max="500" value="30" />
+                  </label>
+                </div>
+                <button id="grow-btn" class="btn btn-primary btn-block" type="button">Discover &amp; follow</button>
+                <p class="fine-print">Accounts you've already followed or unfollowed are skipped automatically.</p>
+              </section>
+
+              <section class="card" aria-labelledby="grow-feed-title">
+                <div class="card-head">
+                  <h2 id="grow-feed-title">Recently followed</h2>
+                </div>
+                <ul id="grow-feed" class="feed"></ul>
+              </section>
+            </div>
+          </section>
+
+          <!-- ---------- Activity ---------- -->
+          <section class="view hidden" data-view="activity" data-title="Activity">
+            <div class="dash-row row-activity">
+              <section class="card activity" aria-labelledby="run-title">
+                <div class="card-head">
+                  <h2 id="run-title">Current run</h2>
+                  <span id="run-status" class="run-state">
+                    <span class="status-dot"></span>
+                    <span class="text">Idle</span>
+                  </span>
+                </div>
+
+                <div id="run-meta" class="run-meta"></div>
+
+                <div id="progress-wrap" class="run-progress hidden">
+                  <div class="progress"><div id="progress-bar" class="progress-bar" style="width: 0%"></div></div>
+                  <div id="progress-meta" class="progress-meta"></div>
+                </div>
+
+                <button id="stop-btn" class="btn btn-danger btn-block hidden" type="button">Stop run</button>
+
+                <div id="history-bar" class="memory hidden"></div>
+              </section>
+
+              <section class="card log-card" aria-labelledby="log-title">
+                <div class="card-head">
+                  <h2 id="log-title">Log</h2>
+                  <span class="card-sub">Newest first · saved to data/logs/</span>
+                </div>
+                <div id="logs" class="logs" role="log" aria-live="polite">
+                  <span class="empty">No log entries yet.</span>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <!-- ---------- Data sources ---------- -->
+          <section class="view hidden" data-view="sources" data-title="Data sources">
+            <div class="dash-row row-halves">
+              <section class="card sources" aria-labelledby="sources-title">
+                <div class="card-head">
+                  <h2 id="sources-title">Update lists</h2>
+                </div>
+
+                <label class="field">
+                  <span class="field-label">Instagram username</span>
+                  <input id="owner-input" type="text" placeholder="Auto-detected if blank" spellcheck="false" autocomplete="off" />
+                </label>
+
+                <div class="source">
+                  <div class="source-text">
+                    <div class="source-title">Data download <span class="tag">Most complete</span></div>
+                    <p class="source-desc">
+                      Instagram's own export (JSON). Request it at
+                      <a href="https://www.instagram.com/download/request/" target="_blank" rel="noopener">instagram.com/download/request</a>,
+                      then select <code>followers_*.json</code> and <code>following.json</code>.
+                    </p>
+                    <div id="import-status" class="source-status hidden"></div>
+                  </div>
+                  <button id="import-btn" class="btn" type="button">Import</button>
+                  <input id="import-input" type="file" accept="application/json,.json" multiple hidden />
+                </div>
+
+                <div class="source">
+                  <div class="source-text">
+                    <div class="source-title">Apify scan</div>
+                    <p class="source-desc">Cloud scan, no browser needed. Billed per result by Apify.</p>
+                    <div id="apify-status" class="source-status hidden"></div>
+                  </div>
+                  <button id="apify-btn" class="btn" type="button" disabled>Scan</button>
+                </div>
+
+                <div class="source">
+                  <div class="source-text">
+                    <div class="source-title">Live scan</div>
+                    <p class="source-desc">Uses your browser session. Instagram may return a partial list.</p>
+                  </div>
+                  <button id="scan-btn" class="btn" type="button">Scan</button>
+                </div>
+              </section>
+
+              <section class="card" aria-labelledby="compare-title">
+                <div class="card-head">
+                  <h2 id="compare-title">Which source should I use?</h2>
+                </div>
+                <table class="compare">
+                  <thead><tr><th>Source</th><th>Complete</th><th>Cost</th><th>Speed</th></tr></thead>
+                  <tbody>
+                    <tr><td>Data download</td><td>Yes</td><td>Free</td><td>24–48 h</td></tr>
+                    <tr><td>Apify scan</td><td>On a paid plan</td><td>Per result</td><td>Minutes</td></tr>
+                    <tr><td>Live scan</td><td>Often partial</td><td>Free</td><td>Minutes</td></tr>
+                  </tbody>
+                </table>
+                <p class="fine-print">
+                  Point <code>IG_IMPORT_DIR</code> at the folder where Instagram's scheduled export lands
+                  (e.g. Google Drive) and new exports are imported automatically.
+                </p>
+              </section>
+            </div>
+          </section>
+        </main>
       </div>
-
-      <div id="error-banner" class="error hidden"></div>
     </div>
+
+    <div id="chart-tip" class="chart-tip hidden" role="tooltip"></div>
+    <div id="error-banner" class="toast hidden" role="alert"></div>
 
     <script type="module" src="/app.js"></script>
   </body>

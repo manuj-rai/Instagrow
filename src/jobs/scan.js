@@ -39,7 +39,7 @@ async function runScanJob({ ownerUsername, config }) {
 
       if (state.stopRequested) {
         log("⏹️  Stop requested after followers scrape. Saving partial snapshot.");
-        saveSnapshot({ owner: me, scannedAt: new Date().toISOString(), followers, following: [] });
+        saveSnapshot({ owner: me, scannedAt: new Date().toISOString(), source: "live_scan_partial", followers, following: [] });
         return { ok: true, partial: true, owner: me, followers: followers.length };
       }
 
@@ -58,6 +58,7 @@ async function runScanJob({ ownerUsername, config }) {
       saveSnapshot({
         owner: me,
         scannedAt: new Date().toISOString(),
+        source: "live_scan",
         followers,
         following,
       });

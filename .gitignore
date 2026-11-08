@@ -41,3 +41,6 @@ build/
 data/
 # Local Claude Code settings (personal paths / permissions)
 .claude/
+
+# Playwright MCP screenshots / snapshots
+.playwright-mcp/

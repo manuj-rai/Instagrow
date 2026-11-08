@@ -21,9 +21,9 @@ const {
   getApifyStatus,
   resolveApifyOwner,
 } = require("./jobs");
-const { loadSnapshot } = require("./persistence");
+const { loadSnapshot, snapshotTrend } = require("./persistence");
 const { startImporter, getImporterStatus } = require("./importer");
-const { historyCounts, clearHistory, unfollowedSet } = require("./history");
+const { historyCounts, historyTimeline, clearHistory, unfollowedSet } = require("./history");
 
 const config = getConfig();
 const isDev = config.nodeEnv === 'development';
@@ -63,7 +63,7 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 // Request logging — suppress noisy polling endpoints
-const QUIET_ROUTES = ['/api/unfollow/status', '/health', '/api/config', '/api/apify/status'];
+const QUIET_ROUTES = ['/api/unfollow/status', '/health', '/api/config', '/api/apify/status', '/api/import/status', '/api/history', '/api/history/timeline'];
 app.use(pinoHttp({
   logger,
   autoLogging: {
@@ -442,6 +442,7 @@ app.get("/api/scan/latest", (_req, res) => {
     snapshot: {
       owner: snap.owner,
       scannedAt: snap.scannedAt,
+      source: snap.source || null,
       counts: {
         followers: followers.length,
         following: effFollowing.length,
@@ -451,8 +452,15 @@ app.get("/api/scan/latest", (_req, res) => {
       },
       lists: comparison,
       history: historyCounts(),
+      trend: snapshotTrend(snap.owner),
     },
   });
+});
+
+// Per-day follow/unfollow counts + most recent actions (dashboard chart & feed).
+app.get("/api/history/timeline", (req, res) => {
+  const days = Math.min(180, Math.max(7, Number.parseInt(req.query.days, 10) || 30));
+  res.json({ ok: true, ...historyTimeline(days) });
 });
 
 // Action history — counts of accounts we've already followed / unfollowed.
